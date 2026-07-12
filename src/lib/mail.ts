@@ -1,13 +1,20 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.NODEMAILER_EMAIL,
+    pass: process.env.NODEMAILER_PASSWORD,
+  },
+});
+
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
 
 export async function sendVerificationEmail(email: string, token: string) {
     const link = `${baseUrl}/verify-email?token=${token}`;
 
-    return resend.emails.send({
-        from: 'testing@resend.dev',
+    return transporter.sendMail({
+        from: process.env.NODEMAILER_EMAIL,
         to: email,
         subject: 'Verify your email address',
         html: `
@@ -15,14 +22,14 @@ export async function sendVerificationEmail(email: string, token: string) {
             <p>Click the link below to verify your email address</p>
             <a href="${link}">Verify email</a>
         `
-    })
+    });
 }
 
 export async function sendPasswordResetEmail(email: string, token: string) {
     const link = `${baseUrl}/reset-password?token=${token}`;
 
-    return resend.emails.send({
-        from: 'testing@resend.dev',
+    return transporter.sendMail({
+        from: process.env.NODEMAILER_EMAIL,
         to: email,
         subject: 'Reset your password',
         html: `
@@ -30,5 +37,5 @@ export async function sendPasswordResetEmail(email: string, token: string) {
             <p>Click the link below to reset password</p>
             <a href="${link}">Reset password</a>
         `
-    })
+    });
 }
