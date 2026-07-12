@@ -90,7 +90,7 @@ export default async function Home() {
         <div className="w-full max-w-7xl mx-auto px-4 py-20 flex flex-col justify-center items-center min-h-screen">
           <div className="text-center w-full">
             <h2 className="text-4xl md:text-5xl font-bold text-center mb-16 bg-gradient-to-r from-pink-500 to-red-500 text-transparent bg-clip-text w-full">
-              Why Choose MatchMe?
+              Why Choose Friends Maker?
             </h2>
             <DynamicAnimatedFeatures />
           </div>

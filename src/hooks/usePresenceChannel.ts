@@ -27,7 +27,7 @@ export const usePresenceChannel = (userId: string | null, profileComplete: boole
     useEffect(() => {
         if (!userId || !profileComplete) return;
         if (!channelRef.current) {
-            channelRef.current = pusherClient.subscribe('presence-match-me');
+            channelRef.current = pusherClient.subscribe('presence-friends-maker');
 
             channelRef.current.bind('pusher:subscription_succeeded', async (members: Members) => {
                 handleSetMembers(Object.keys(members.members));

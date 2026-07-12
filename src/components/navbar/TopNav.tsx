@@ -56,7 +56,7 @@ export default async function TopNav() {
           />
           <div className="font-bold text-3xl flex">
             <span className="text-gray-200">
-              MatchMe
+              Friends Maker
             </span>
           </div>
         </NavbarBrand>

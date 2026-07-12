@@ -54,7 +54,7 @@ export default function LoginForm() {
             </h1>
           </div>
           <p className="text-neutral-500">
-            Welcome back to MatchMe!
+            Welcome back to Friends Maker!
           </p>
         </div>
       </CardHeader>

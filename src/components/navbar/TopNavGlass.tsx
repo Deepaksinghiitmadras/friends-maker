@@ -69,7 +69,7 @@ export default async function TopNavGlass() {
           />
           <div className="font-bold text-2xl flex">
             <span className="text-slate-800 tracking-tight">
-              MatchMe
+              Friends Maker
             </span>
           </div>
         </NavbarBrand>
