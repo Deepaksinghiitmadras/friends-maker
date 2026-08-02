@@ -122,7 +122,10 @@ export async function verifyEmail(token: string): Promise<ActionResult<string>> 
 
         await prisma.user.update({
             where: { id: existingUser.id },
-            data: { emailVerified: new Date() }
+            data: {
+                emailVerified: new Date(),
+                profileComplete: true,
+            }
         });
 
         await prisma.token.delete({ where: { id: existingToken.id } })
@@ -218,14 +221,25 @@ export async function completeSocialLoginProfile(data: ProfileSchema):
             data: {
                 profileComplete: true,
                 member: {
-                    create: {
-                        name: session.user.name as string,
-                        image: session.user.image,
-                        gender: data.gender,
-                        dateOfBirth: new Date(data.dateOfBirth),
-                        description: data.description,
-                        city: data.city,
-                        country: data.country
+                    upsert: {
+                        create: {
+                            name: session.user.name as string,
+                            image: session.user.image,
+                            gender: data.gender,
+                            dateOfBirth: new Date(data.dateOfBirth),
+                            description: data.description,
+                            city: data.city,
+                            country: data.country
+                        },
+                        update: {
+                            name: session.user.name as string,
+                            image: session.user.image,
+                            gender: data.gender,
+                            dateOfBirth: new Date(data.dateOfBirth),
+                            description: data.description,
+                            city: data.city,
+                            country: data.country
+                        }
                     }
                 }
             },
@@ -238,10 +252,11 @@ export async function completeSocialLoginProfile(data: ProfileSchema):
             }
         })
 
-        return { status: 'success', data: user.accounts[0].provider }
+        // For email/password users the accounts array is empty; redirect to members directly
+        return { status: 'success', data: user.accounts[0]?.provider ?? 'credentials' }
     } catch (error) {
         console.log(error);
-        throw error;
+        return { status: 'error', error: 'Something went wrong completing your profile' }
     }
 }
 

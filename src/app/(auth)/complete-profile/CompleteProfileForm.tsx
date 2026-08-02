@@ -15,11 +15,14 @@ import ProfileForm from "../register/ProfileDetailsForm";
 import { Button } from "@nextui-org/react";
 import { completeSocialLoginProfile } from "@/app/actions/authActions";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
 
 export default function CompleteProfileForm() {
+  const router = useRouter();
   const methods = useForm<ProfileSchema>({
     resolver: zodResolver(profileSchema),
-    mode: "onTouched",
+    mode: "all",
   });
 
   const {
@@ -34,9 +37,18 @@ export default function CompleteProfileForm() {
       await completeSocialLoginProfile(data);
 
     if (result.status === "success") {
-      signIn(result.data, {
-        callbackUrl: "/members",
-      });
+      // For social logins (google/github) re-signin refreshes the session token
+      // For credentials users, just navigate to members
+      if (result.data === "credentials") {
+        router.push("/members");
+        router.refresh();
+      } else {
+        signIn(result.data, {
+          callbackUrl: "/members",
+        });
+      }
+    } else {
+      toast.error(result.error as string);
     }
   };
 
