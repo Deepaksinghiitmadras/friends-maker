@@ -3,6 +3,7 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 import TopNav from "@/components/navbar/TopNavGlass";
 import { auth } from "@/auth";
+import NextTopLoader from "nextjs-toploader";
 
 export const metadata: Metadata = {
   title: "Friends Maker",
@@ -23,6 +24,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body>
+        <NextTopLoader color="#e11d48" showSpinner={false} />
         <Providers
           profileComplete={
             profileComplete

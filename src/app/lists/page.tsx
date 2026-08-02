@@ -12,10 +12,10 @@ export default async function ListsPage({
 }: {
   searchParams: { type: string };
 }) {
-  const likeIds = await fetchCurrentUserLikeIds();
-  const members = await fetchLikedMembers(
-    searchParams.type
-  );
+  const [likeIds, members] = await Promise.all([
+    fetchCurrentUserLikeIds(),
+    fetchLikedMembers(searchParams.type),
+  ]);
 
   return (
     <div>

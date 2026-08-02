@@ -11,10 +11,10 @@ export default async function MembersPage({
 }: {
   searchParams: GetMemberParams;
 }) {
-  const { items: members, totalCount } =
-    await getMembers(searchParams);
-
-  const likeIds = await fetchCurrentUserLikeIds();
+  const [{ items: members, totalCount }, likeIds] = await Promise.all([
+    getMembers(searchParams),
+    fetchCurrentUserLikeIds(),
+  ]);
 
   if (members.length === 0) return <EmptyState />;
 

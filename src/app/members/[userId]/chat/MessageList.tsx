@@ -30,6 +30,10 @@ export default function MessageList({
     initialMessages.messages
   );
 
+  useEffect(() => {
+    setMessages(initialMessages.messages);
+  }, [initialMessages.messages]);
+
   const setReadCount = useRef(false);
 
   const { updateUnreadCount } = useMessageStore(
