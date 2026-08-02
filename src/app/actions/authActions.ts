@@ -1,6 +1,7 @@
 'use server';
 
 import { auth, signIn, signOut } from '@/auth';
+import { getUserByEmail, getUserById } from './userQueries';
 import { sendPasswordResetEmail, sendVerificationEmail } from '@/lib/mail';
 import { prisma } from '@/lib/prisma';
 import { LoginSchema } from '@/lib/schemas/LoginSchema';
@@ -153,13 +154,7 @@ export async function generateResetPasswordEmail(email: string): Promise<ActionR
     }
 }
 
-export async function getUserByEmail(email: string) {
-    return prisma.user.findUnique({ where: { email } });
-}
 
-export async function getUserById(id: string) {
-    return prisma.user.findUnique({ where: { id } });
-}
 
 export async function getAuthUserId() {
     const session = await auth();
