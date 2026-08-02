@@ -39,7 +39,7 @@ export default function RegisterForm() {
       resolver: zodResolver(
         currentValidationSchema
       ),
-      mode: "onTouched",
+      mode: "all",
     });
 
   const {
@@ -96,7 +96,7 @@ export default function RegisterForm() {
             </h1>
           </div>
           <p className="text-neutral-500">
-            Welcome to NextMatch
+            Welcome to Friends Maker
           </p>
         </div>
       </CardHeader>
