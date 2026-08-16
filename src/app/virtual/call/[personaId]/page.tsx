@@ -186,7 +186,7 @@ export default function VirtualVideoCallPage() {
           </motion.div>
 
           {/* Live Subtitles & Captions Overlay */}
-          <div className="absolute bottom-12 left-4 right-4 sm:left-12 sm:right-12 z-20 flex justify-center pointer-events-none">
+          <div className="absolute bottom-16 sm:bottom-20 left-4 right-4 sm:left-12 sm:right-12 z-20 flex justify-center pointer-events-none">
             <AnimatePresence mode="wait">
               {currentCaption && (
                 <motion.div
@@ -194,7 +194,7 @@ export default function VirtualVideoCallPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="max-w-xl bg-black/80 backdrop-blur-xl border border-white/15 px-4 py-2.5 rounded-2xl text-xs sm:text-sm text-center text-white shadow-2xl"
+                  className="max-w-xl bg-black/85 backdrop-blur-xl border border-white/20 px-5 py-3 rounded-2xl text-xs sm:text-sm text-center text-white shadow-2xl"
                 >
                   <p className="leading-snug">{currentCaption}</p>
                 </motion.div>
@@ -203,14 +203,14 @@ export default function VirtualVideoCallPage() {
           </div>
 
           {/* Suggested Icebreaker Questions */}
-          <div className="absolute bottom-2 left-4 right-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
+          <div className="absolute bottom-3 sm:bottom-4 left-4 right-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
             {persona.sampleQuestions.map((q, idx) => (
               <button
                 key={idx}
                 onClick={() => sendUserMessage(q)}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md border border-white/20 text-[11px] text-purple-200 hover:text-white whitespace-nowrap transition-all duration-200 cursor-pointer shadow-sm"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-black/70 hover:bg-black/95 backdrop-blur-md border border-white/20 text-xs text-purple-200 hover:text-white whitespace-nowrap transition-all duration-200 cursor-pointer shadow-md"
               >
-                <HiSparkles className="text-[10px] text-amber-300" />
+                <HiSparkles className="text-xs text-amber-300" />
                 <span>{q}</span>
               </button>
             ))}

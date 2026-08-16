@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VirtualPersona } from '@/lib/virtualPersonas';
 import { AvatarActionType, OutfitStyle } from './ThreeAvatarScene';
-import { FaHeart, FaVolumeUp, FaWifi, FaCoffee, FaDumbbell, FaVideo } from 'react-icons/fa';
+import { FaHeart, FaVolumeUp, FaWifi, FaCoffee, FaDumbbell } from 'react-icons/fa';
 
 interface Props {
   persona: VirtualPersona;
@@ -44,22 +44,10 @@ export default function VirtualAvatarCanvas({
     return persona.videoClips.idle;
   }, [persona.videoClips, action, isSpeaking]);
 
-  // Handle video switching & playback
-  useEffect(() => {
-    setVideoError(false);
-    if (videoRef.current && currentVideoSrc) {
-      videoRef.current.load();
-      videoRef.current.play().catch(() => {
-        // Autoplay policy or video not found
-        setVideoError(true);
-      });
-    }
-  }, [currentVideoSrc]);
-
   // Audio level smoothing
   const normalizedLevel = Math.max(0.1, Math.min(1, audioLevel || 0.4));
 
-  // Dynamic transforms based on action (when playing fallback image mode)
+  // Dynamic transforms based on action (when playing image mode)
   const motionVariants = useMemo(() => {
     switch (action) {
       case 'standing':
@@ -157,20 +145,47 @@ export default function VirtualAvatarCanvas({
 
       {/* ── REAL HUMAN VIDEO CALL STAGE (Supports Gemini 10s Videos & HD Fallback) ── */}
       <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-        {/* If video clip exists and loads without error, display the video */}
-        {currentVideoSrc && !videoError ? (
-          <div className="relative w-full h-full max-w-5xl flex items-center justify-center">
-            <video
-              ref={videoRef}
-              src={currentVideoSrc}
-              autoPlay
-              loop
-              muted
-              playsInline
-              onLoadedData={() => setVideoLoaded(true)}
-              onError={() => setVideoError(true)}
-              className="w-full h-full max-h-[80vh] aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] object-cover object-center rounded-2xl drop-shadow-2xl"
+        {/* Main High-Res Human Video Feed Container */}
+        <motion.div
+          animate={motionVariants}
+          className="relative w-full h-full max-w-5xl flex items-center justify-center"
+        >
+          <div className="relative w-full h-full max-h-[80vh] aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] mx-auto flex items-center justify-center">
+            {/* Always-on HD Human Image Base */}
+            <Image
+              src={persona.avatarImage}
+              alt={persona.name}
+              fill
+              priority
+              sizes="(max-width: 1200px) 100vw, 1200px"
+              className="object-cover object-top sm:object-center rounded-2xl drop-shadow-2xl transition-all duration-500"
+              style={{
+                filter: isSpeaking
+                  ? 'contrast(1.05) brightness(1.03) saturate(1.05)'
+                  : 'contrast(1.0) brightness(1.0) saturate(1.0)',
+              }}
             />
+
+            {/* If video clip is available, crossfade the video on top */}
+            {currentVideoSrc && !videoError && (
+              <video
+                ref={videoRef}
+                src={currentVideoSrc}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedData={() => setVideoLoaded(true)}
+                onError={() => {
+                  setVideoError(true);
+                  setVideoLoaded(false);
+                }}
+                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-700 ${
+                  videoLoaded ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+              />
+            )}
+
             {/* Speaking Voice Aura Waveform Ring */}
             <AnimatePresence>
               {isSpeaking && (
@@ -186,139 +201,101 @@ export default function VirtualAvatarCanvas({
                 />
               )}
             </AnimatePresence>
-          </div>
-        ) : (
-          /* HD Human Photo with Framer Motion Organic Presence */
-          <motion.div
-            animate={motionVariants}
-            className="relative w-full h-full max-w-5xl flex items-center justify-center"
-          >
-            <div className="relative w-full h-full max-h-[80vh] aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] mx-auto flex items-center justify-center">
-              <Image
-                src={persona.avatarImage}
-                alt={persona.name}
-                fill
-                priority
-                sizes="(max-width: 1200px) 100vw, 1200px"
-                className="object-cover object-top sm:object-center rounded-2xl drop-shadow-2xl transition-all duration-500"
-                style={{
-                  filter: isSpeaking
-                    ? 'contrast(1.05) brightness(1.03) saturate(1.05)'
-                    : 'contrast(1.0) brightness(1.0) saturate(1.0)',
-                }}
-              />
 
-              {/* Speaking Voice Aura Waveform Ring */}
-              <AnimatePresence>
-                {isSpeaking && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{
-                      opacity: [0.3, 0.7, 0.3],
-                      scale: [1.0, 1.02 + normalizedLevel * 0.02, 1.0],
-                    }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute inset-0 rounded-2xl pointer-events-none border-2 border-pink-500/40 shadow-[0_0_40px_rgba(236,72,153,0.25)]"
-                  />
-                )}
-              </AnimatePresence>
+            {/* Studio Key Lighting Vignette Overlay */}
+            <div className="absolute inset-0 rounded-2xl pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/30" />
+            <div className="absolute inset-0 rounded-2xl pointer-events-none ring-1 ring-inset ring-white/10" />
 
-              {/* Studio Key Lighting Vignette Overlay */}
-              <div className="absolute inset-0 rounded-2xl pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/30" />
-              <div className="absolute inset-0 rounded-2xl pointer-events-none ring-1 ring-inset ring-white/10" />
-
-              {/* ── INTERACTIVE ACTION OVERLAYS ─────────────────────────────────── */}
-              {/* 1. Making Coffee with Rising Steam */}
-              {action === 'cooking' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 20 }}
-                  className="absolute bottom-16 right-10 sm:right-20 flex flex-col items-center pointer-events-none z-30"
-                >
-                  <div className="relative w-8 h-10 mb-[-6px]">
-                    {steamParticles.map((p, i) => (
-                      <motion.span
-                        key={p}
-                        animate={{
-                          y: [-5, -30],
-                          x: [0, i % 2 === 0 ? 6 : -6],
-                          opacity: [0, 0.7, 0],
-                          scale: [0.6, 1.3],
-                        }}
-                        transition={{
-                          duration: 1.8,
-                          repeat: Infinity,
-                          delay: i * 0.35,
-                          ease: 'easeOut',
-                        }}
-                        className="absolute bottom-0 left-3 w-2 h-2 rounded-full bg-white/40 filter blur-xs"
-                      />
-                    ))}
-                  </div>
-                  <div className="p-3 rounded-full bg-amber-950/80 border border-amber-500/40 shadow-xl backdrop-blur-md text-amber-300">
-                    <FaCoffee className="text-2xl" />
-                  </div>
-                </motion.div>
-              )}
-
-              {/* 2. Wave Action */}
-              {action === 'wave' && (
-                <motion.div
-                  initial={{ scale: 0, rotate: -20 }}
-                  animate={{ scale: 1, rotate: [0, 15, -10, 15, 0] }}
-                  transition={{ duration: 1.2, repeat: Infinity }}
-                  className="absolute top-16 right-10 sm:right-16 z-30 p-3.5 rounded-full bg-purple-900/80 border border-purple-400/50 shadow-2xl backdrop-blur-md text-yellow-300 pointer-events-none text-2xl"
-                >
-                  👋
-                </motion.div>
-              )}
-
-              {/* 3. Kiss Action Particles */}
-              {action === 'kiss' && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
-                >
-                  {[1, 2, 3].map((k) => (
+            {/* ── INTERACTIVE ACTION OVERLAYS ─────────────────────────────────── */}
+            {/* 1. Making Coffee with Rising Steam */}
+            {action === 'cooking' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                className="absolute bottom-16 right-10 sm:right-20 flex flex-col items-center pointer-events-none z-30"
+              >
+                <div className="relative w-8 h-10 mb-[-6px]">
+                  {steamParticles.map((p, i) => (
                     <motion.span
-                      key={k}
+                      key={p}
                       animate={{
-                        scale: [0.5, 1.4, 0.8],
-                        y: [0, -60, -100],
-                        x: [(k - 2) * 40, (k - 2) * 70],
-                        opacity: [0, 0.9, 0],
+                        y: [-5, -30],
+                        x: [0, i % 2 === 0 ? 6 : -6],
+                        opacity: [0, 0.7, 0],
+                        scale: [0.6, 1.3],
                       }}
                       transition={{
-                        duration: 2.0,
+                        duration: 1.8,
                         repeat: Infinity,
-                        delay: k * 0.5,
+                        delay: i * 0.35,
                         ease: 'easeOut',
                       }}
-                      className="absolute text-3xl sm:text-4xl"
-                    >
-                      💋
-                    </motion.span>
+                      className="absolute bottom-0 left-3 w-2 h-2 rounded-full bg-white/40 filter blur-xs"
+                    />
                   ))}
-                </motion.div>
-              )}
+                </div>
+                <div className="p-3 rounded-full bg-amber-950/80 border border-amber-500/40 shadow-xl backdrop-blur-md text-amber-300">
+                  <FaCoffee className="text-2xl" />
+                </div>
+              </motion.div>
+            )}
 
-              {/* 4. Workout Action Pulse */}
-              {action === 'workout' && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="absolute top-16 right-10 sm:right-16 z-30 p-3 rounded-full bg-orange-950/80 border border-orange-500/50 shadow-2xl backdrop-blur-md text-orange-400 flex items-center gap-2 pointer-events-none"
-                >
-                  <FaDumbbell className="text-xl animate-bounce" />
-                  <span className="text-xs font-bold font-mono text-white">Active</span>
-                </motion.div>
-              )}
-            </div>
-          </motion.div>
-        )}
+            {/* 2. Wave Action */}
+            {action === 'wave' && (
+              <motion.div
+                initial={{ scale: 0, rotate: -20 }}
+                animate={{ scale: 1, rotate: [0, 15, -10, 15, 0] }}
+                transition={{ duration: 1.2, repeat: Infinity }}
+                className="absolute top-16 right-10 sm:right-16 z-30 p-3.5 rounded-full bg-purple-900/80 border border-purple-400/50 shadow-2xl backdrop-blur-md text-yellow-300 pointer-events-none text-2xl"
+              >
+                👋
+              </motion.div>
+            )}
+
+            {/* 3. Kiss Action Particles */}
+            {action === 'kiss' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+              >
+                {[1, 2, 3].map((k) => (
+                  <motion.span
+                    key={k}
+                    animate={{
+                      scale: [0.5, 1.4, 0.8],
+                      y: [0, -60, -100],
+                      x: [(k - 2) * 40, (k - 2) * 70],
+                      opacity: [0, 0.9, 0],
+                    }}
+                    transition={{
+                      duration: 2.0,
+                      repeat: Infinity,
+                      delay: k * 0.5,
+                      ease: 'easeOut',
+                    }}
+                    className="absolute text-3xl sm:text-4xl"
+                  >
+                    💋
+                  </motion.span>
+                ))}
+              </motion.div>
+            )}
+
+            {/* 4. Workout Action Pulse */}
+            {action === 'workout' && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="absolute top-16 right-10 sm:right-16 z-30 p-3 rounded-full bg-orange-950/80 border border-orange-500/50 shadow-2xl backdrop-blur-md text-orange-400 flex items-center gap-2 pointer-events-none"
+              >
+                <FaDumbbell className="text-xl animate-bounce" />
+                <span className="text-xs font-bold font-mono text-white">Active</span>
+              </motion.div>
+            )}
+          </div>
+        </motion.div>
       </div>
 
       {/* ── TOP-LEFT LIVE CALL STATUS BADGE ─────────────────────────────────── */}
@@ -410,8 +387,8 @@ export default function VirtualAvatarCanvas({
         </div>
       </div>
 
-      {/* ── TOP-CENTER / TOP-LEFT COMPANION NAME (No overlap with bottom chips!) ── */}
-      <div className="absolute bottom-16 sm:bottom-18 left-4 sm:left-6 z-30 text-white pointer-events-none">
+      {/* ── COMPANION NAME BADGE (Clean positioning, no overlap) ─────────────── */}
+      <div className="absolute top-16 left-4 sm:left-6 z-30 text-white pointer-events-none">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="text-base sm:text-lg font-bold tracking-tight drop-shadow-md">
             {persona.name}, {persona.age}
@@ -421,10 +398,10 @@ export default function VirtualAvatarCanvas({
           </span>
           <span className="px-2 py-0.5 rounded-full bg-emerald-500/80 text-[10px] font-bold backdrop-blur-sm shadow-sm flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-            {currentVideoSrc && !videoError ? 'HD Video Loop' : 'Live Stream'}
+            {videoLoaded ? 'HD Video Loop' : 'Live Stream'}
           </span>
         </div>
-        <p className="text-[11px] sm:text-xs text-purple-200/90 font-medium mt-0.5 drop-shadow-sm max-w-sm sm:max-w-md truncate">
+        <p className="text-[11px] sm:text-xs text-purple-200/90 font-medium mt-0.5 drop-shadow-sm max-w-xs truncate">
           {persona.tagline || `${persona.title} · ${persona.location}`}
         </p>
       </div>
