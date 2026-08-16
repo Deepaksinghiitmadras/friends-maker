@@ -28,106 +28,44 @@ export default function VirtualAvatarCanvas({
   outfit = 'casual',
 }: Props) {
   const [steamParticles] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [videoLoaded, setVideoLoaded] = useState<boolean>(false);
-  const [videoError, setVideoError] = useState<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [idleVideoLoaded, setIdleVideoLoaded] = useState<boolean>(false);
+  const [actionVideoLoaded, setActionVideoLoaded] = useState<boolean>(false);
 
-  // Determine which video clip should be playing based on action/state
-  const currentVideoSrc = useMemo(() => {
+  const idleVideoRef = useRef<HTMLVideoElement>(null);
+  const actionVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Base idle video (always active in background)
+  const idleVideoSrc = persona.videoClips?.idle;
+
+  // Active overlay video (speaking, coffee, kiss, wave, etc.)
+  const actionVideoSrc = useMemo(() => {
     if (!persona.videoClips) return undefined;
     if (action === 'cooking') return persona.videoClips.cooking;
+    if (action === 'kiss') return persona.videoClips.kiss;
     if (action === 'wave') return persona.videoClips.wave;
     if (action === 'workout') return persona.videoClips.workout;
-    if (action === 'kiss') return persona.videoClips.kiss;
     if (action === 'standing') return persona.videoClips.standing;
-    if (isSpeaking) return persona.videoClips.speaking || persona.videoClips.idle;
-    return persona.videoClips.idle;
+    if (isSpeaking && persona.videoClips.speaking) return persona.videoClips.speaking;
+    return undefined;
   }, [persona.videoClips, action, isSpeaking]);
+
+  // Manage action video playback
+  useEffect(() => {
+    if (actionVideoRef.current && actionVideoSrc) {
+      actionVideoRef.current.currentTime = 0;
+      actionVideoRef.current.play().catch(() => {});
+    }
+  }, [actionVideoSrc]);
 
   // Audio level smoothing
   const normalizedLevel = Math.max(0.1, Math.min(1, audioLevel || 0.4));
-
-  // Dynamic transforms based on action (when playing image mode)
-  const motionVariants = useMemo(() => {
-    switch (action) {
-      case 'standing':
-        return {
-          scale: 0.88,
-          y: 20,
-          rotate: 0,
-          transition: { type: 'spring', damping: 20, stiffness: 100 },
-        };
-      case 'sitting':
-        return {
-          scale: 1.02,
-          y: 0,
-          rotate: 0,
-          transition: { type: 'spring', damping: 20, stiffness: 100 },
-        };
-      case 'kiss':
-        return {
-          scale: [1, 1.12, 1.08],
-          y: [0, -15, -10],
-          rotate: [0, 2, 0],
-          transition: { duration: 1.2, repeat: Infinity, repeatType: 'reverse' as const },
-        };
-      case 'wave':
-        return {
-          scale: 1.04,
-          y: [0, -8, 0],
-          rotate: [0, -2, 2, -2, 0],
-          transition: { duration: 1.5, repeat: Infinity },
-        };
-      case 'workout':
-        return {
-          scale: [1, 1.06, 0.98, 1.04, 1],
-          y: [0, -12, 4, -8, 0],
-          transition: { duration: 1.0, repeat: Infinity },
-        };
-      case 'cooking':
-        return {
-          scale: 1.02,
-          y: [0, 4, 0],
-          rotate: [0, -1, 1, 0],
-          transition: { duration: 2.5, repeat: Infinity },
-        };
-      case 'changing_clothes':
-        return {
-          scale: [1, 0.95, 1.05, 1],
-          filter: ['brightness(1)', 'brightness(1.5)', 'brightness(1)'],
-          transition: { duration: 1.0 },
-        };
-      default:
-        // Idle / speaking natural breathing & presence
-        return isSpeaking
-          ? {
-              scale: [1, 1.018, 1, 1.022, 1],
-              y: [0, -4, 1, -3, 0],
-              rotate: [0, 0.8, -0.6, 0.4, 0],
-              transition: { duration: 2.2, repeat: Infinity, ease: 'easeInOut' },
-            }
-          : isListening
-          ? {
-              scale: 1.03,
-              y: -6,
-              rotate: -1.5,
-              transition: { duration: 0.6, ease: 'easeOut' },
-            }
-          : {
-              scale: [1, 1.012, 1],
-              y: [0, -3, 0],
-              rotate: [0, 0.5, 0],
-              transition: { duration: 4.5, repeat: Infinity, ease: 'easeInOut' },
-            };
-    }
-  }, [action, isSpeaking, isListening]);
 
   return (
     <div className="relative w-full h-full rounded-3xl overflow-hidden select-none bg-gray-950 border border-white/10 shadow-2xl flex items-center justify-center">
       {/* ── AMBIENT DEPTH BACKDROP (Soft Studio Room) ───────────────────────── */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
-          className="absolute inset-[-20%] bg-cover bg-center filter blur-3xl opacity-30 scale-125 transition-all duration-1000"
+          className="absolute inset-[-20%] bg-cover bg-center filter blur-3xl opacity-35 scale-125 transition-all duration-1000"
           style={{ backgroundImage: `url(${persona.avatarImage})` }}
         />
         <div
@@ -143,61 +81,64 @@ export default function VirtualAvatarCanvas({
         />
       </div>
 
-      {/* ── REAL HUMAN VIDEO CALL STAGE (Supports Gemini 10s Videos & HD Fallback) ── */}
+      {/* ── SEAMLESS DUAL-LAYER VIDEO STAGE ─────────────────────────────────── */}
       <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-        {/* Main High-Res Human Video Feed Container */}
-        <motion.div
-          animate={motionVariants}
-          className="relative w-full h-full max-w-5xl flex items-center justify-center"
-        >
+        <div className="relative w-full h-full max-w-5xl flex items-center justify-center">
           <div className="relative w-full h-full max-h-[80vh] aspect-[4/3] sm:aspect-[16/10] md:aspect-[16/9] mx-auto flex items-center justify-center">
-            {/* Always-on HD Human Image Base */}
+            {/* 1. Base HD Image (Instant zero-flicker background) */}
             <Image
               src={persona.avatarImage}
               alt={persona.name}
               fill
               priority
               sizes="(max-width: 1200px) 100vw, 1200px"
-              className="object-cover object-top sm:object-center rounded-2xl drop-shadow-2xl transition-all duration-500"
-              style={{
-                filter: isSpeaking
-                  ? 'contrast(1.05) brightness(1.03) saturate(1.05)'
-                  : 'contrast(1.0) brightness(1.0) saturate(1.0)',
-              }}
+              className="object-cover object-top sm:object-center rounded-2xl drop-shadow-2xl"
             />
 
-            {/* If video clip is available, crossfade the video on top */}
-            {currentVideoSrc && !videoError && (
+            {/* 2. Seamless Continuous Idle Video Layer (Always loop in background) */}
+            {idleVideoSrc && (
               <video
-                ref={videoRef}
-                src={currentVideoSrc}
+                ref={idleVideoRef}
+                src={idleVideoSrc}
                 autoPlay
                 loop
                 muted
                 playsInline
-                onLoadedData={() => setVideoLoaded(true)}
-                onError={() => {
-                  setVideoError(true);
-                  setVideoLoaded(false);
-                }}
-                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-700 ${
-                  videoLoaded ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                onLoadedData={() => setIdleVideoLoaded(true)}
+                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-500 ${
+                  idleVideoLoaded ? 'opacity-100' : 'opacity-0'
                 }`}
               />
             )}
 
-            {/* Speaking Voice Aura Waveform Ring */}
+            {/* 3. Action / Talking Video Overlay Layer (Crossfades seamlessly when active) */}
+            {actionVideoSrc && (
+              <video
+                ref={actionVideoRef}
+                src={actionVideoSrc}
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedData={() => setActionVideoLoaded(true)}
+                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-400 ${
+                  actionVideoLoaded ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
+            )}
+
+            {/* 4. Speaking Voice Aura Waveform Ring */}
             <AnimatePresence>
               {isSpeaking && (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
+                  initial={{ opacity: 0, scale: 0.96 }}
                   animate={{
-                    opacity: [0.3, 0.7, 0.3],
+                    opacity: [0.35, 0.75, 0.35],
                     scale: [1.0, 1.02 + normalizedLevel * 0.02, 1.0],
                   }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
-                  className="absolute inset-0 rounded-2xl pointer-events-none border-2 border-pink-500/40 shadow-[0_0_40px_rgba(236,72,153,0.25)]"
+                  className="absolute inset-0 rounded-2xl pointer-events-none border-2 border-pink-500/50 shadow-[0_0_45px_rgba(236,72,153,0.3)]"
                 />
               )}
             </AnimatePresence>
@@ -207,7 +148,7 @@ export default function VirtualAvatarCanvas({
             <div className="absolute inset-0 rounded-2xl pointer-events-none ring-1 ring-inset ring-white/10" />
 
             {/* ── INTERACTIVE ACTION OVERLAYS ─────────────────────────────────── */}
-            {/* 1. Making Coffee with Rising Steam */}
+            {/* Coffee steam & icon */}
             {action === 'cooking' && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -241,19 +182,7 @@ export default function VirtualAvatarCanvas({
               </motion.div>
             )}
 
-            {/* 2. Wave Action */}
-            {action === 'wave' && (
-              <motion.div
-                initial={{ scale: 0, rotate: -20 }}
-                animate={{ scale: 1, rotate: [0, 15, -10, 15, 0] }}
-                transition={{ duration: 1.2, repeat: Infinity }}
-                className="absolute top-16 right-10 sm:right-16 z-30 p-3.5 rounded-full bg-purple-900/80 border border-purple-400/50 shadow-2xl backdrop-blur-md text-yellow-300 pointer-events-none text-2xl"
-              >
-                👋
-              </motion.div>
-            )}
-
-            {/* 3. Kiss Action Particles */}
+            {/* Kiss action floating particles */}
             {action === 'kiss' && (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -283,7 +212,19 @@ export default function VirtualAvatarCanvas({
               </motion.div>
             )}
 
-            {/* 4. Workout Action Pulse */}
+            {/* Wave action */}
+            {action === 'wave' && (
+              <motion.div
+                initial={{ scale: 0, rotate: -20 }}
+                animate={{ scale: 1, rotate: [0, 15, -10, 15, 0] }}
+                transition={{ duration: 1.2, repeat: Infinity }}
+                className="absolute top-16 right-10 sm:right-16 z-30 p-3.5 rounded-full bg-purple-900/80 border border-purple-400/50 shadow-2xl backdrop-blur-md text-yellow-300 pointer-events-none text-2xl"
+              >
+                👋
+              </motion.div>
+            )}
+
+            {/* Workout action */}
             {action === 'workout' && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -295,7 +236,7 @@ export default function VirtualAvatarCanvas({
               </motion.div>
             )}
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {/* ── TOP-LEFT LIVE CALL STATUS BADGE ─────────────────────────────────── */}
@@ -387,7 +328,7 @@ export default function VirtualAvatarCanvas({
         </div>
       </div>
 
-      {/* ── COMPANION NAME BADGE (Clean positioning, no overlap) ─────────────── */}
+      {/* ── COMPANION NAME BADGE (Clean top-left, no overlap) ────────────────── */}
       <div className="absolute top-16 left-4 sm:left-6 z-30 text-white pointer-events-none">
         <div className="flex items-center gap-2 flex-wrap">
           <h3 className="text-base sm:text-lg font-bold tracking-tight drop-shadow-md">
@@ -398,7 +339,7 @@ export default function VirtualAvatarCanvas({
           </span>
           <span className="px-2 py-0.5 rounded-full bg-emerald-500/80 text-[10px] font-bold backdrop-blur-sm shadow-sm flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-            {videoLoaded ? 'HD Video Loop' : 'Live Stream'}
+            {idleVideoLoaded ? 'HD Video Loop' : 'Live Stream'}
           </span>
         </div>
         <p className="text-[11px] sm:text-xs text-purple-200/90 font-medium mt-0.5 drop-shadow-sm max-w-xs truncate">
