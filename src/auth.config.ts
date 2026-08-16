@@ -3,6 +3,7 @@ import Github from "next-auth/providers/github"
 import type { NextAuthConfig } from "next-auth"
 
 export default {
+    secret: process.env.AUTH_SECRET,
     callbacks: {
         async jwt({ user, token }) {
             if (user) {

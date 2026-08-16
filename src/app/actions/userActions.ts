@@ -4,6 +4,7 @@ import { MemberEditSchema, memberEditSchema } from '@/lib/schemas/MemberEditSche
 import { ActionResult } from '@/types';
 import { Member, Photo } from '@prisma/client';
 import { getAuthUserId } from './authActions';
+import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { cloudinary } from '@/lib/cloudinary';
 
@@ -110,13 +111,15 @@ export async function deleteImage(photo: Photo) {
 
 export async function getUserInfoForNav() {
     try {
-        const userId = await getAuthUserId();
+        const session = await auth();
+        const userId = session?.user?.id;
+        if (!userId) return null;
         return prisma.user.findUnique({
             where: { id: userId },
             select: { name: true, image: true }
         })
     } catch (error) {
-        console.log(error);
-        throw error;
+        console.log('Error fetching user info for nav:', error);
+        return null;
     }
 }

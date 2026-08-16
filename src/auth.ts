@@ -1,18 +1,17 @@
 import NextAuth from "next-auth"
 import { PrismaAdapter } from "@auth/prisma-adapter"
-import { PrismaClient, Role } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 import authConfig from "./auth.config"
 import Credentials from "next-auth/providers/credentials"
 import { loginSchema } from './lib/schemas/LoginSchema'
 import { getUserByEmail } from './app/actions/userQueries'
 import { compare } from 'bcryptjs'
 
-const prisma = new PrismaClient()
-
 export const { auth, handlers, signIn, signOut } = NextAuth({
     ...authConfig,
     adapter: PrismaAdapter(prisma),
     session: { strategy: "jwt" },
+    secret: process.env.AUTH_SECRET,
     providers: [
         ...authConfig.providers,
         Credentials({
