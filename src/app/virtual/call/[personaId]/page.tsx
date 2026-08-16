@@ -145,9 +145,9 @@ export default function VirtualVideoCallPage() {
       </div>
 
       {/* ── MAIN VIDEO STAGE ────────────────────────────────────────────────── */}
-      <div className="relative flex-grow w-full h-full flex items-center justify-center p-2 sm:p-4 md:p-6">
+      <div className="relative flex-1 min-h-0 w-full flex items-center justify-center p-2 sm:p-4 pt-16 pb-2">
         {/* Remote Companion Video Canvas */}
-        <div className="relative w-full h-full max-w-6xl max-h-[85vh] mx-auto rounded-3xl overflow-hidden shadow-2xl">
+        <div className="relative w-full h-full max-w-5xl mx-auto rounded-3xl overflow-hidden shadow-2xl">
           <VirtualAvatarCanvas
             persona={persona}
             isSpeaking={isSpeaking}
@@ -162,7 +162,7 @@ export default function VirtualVideoCallPage() {
           <motion.div
             drag
             dragConstraints={{ left: 0, right: 300, top: 0, bottom: 400 }}
-            className="absolute top-20 right-4 sm:right-6 z-30 w-32 sm:w-44 md:w-52 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-gray-900 cursor-grab active:cursor-grabbing backdrop-blur-md"
+            className="absolute top-4 right-4 z-30 w-28 sm:w-40 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl border-2 border-white/20 bg-gray-900 cursor-grab active:cursor-grabbing backdrop-blur-md"
           >
             {!isVideoOff ? (
               <video
@@ -174,7 +174,7 @@ export default function VirtualVideoCallPage() {
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800 text-gray-400 p-2 text-center text-xs">
-                <FaVideoSlash className="text-2xl mb-1 text-gray-500" />
+                <FaVideoSlash className="text-xl mb-1 text-gray-500" />
                 <span>Camera Off</span>
               </div>
             )}
@@ -186,7 +186,7 @@ export default function VirtualVideoCallPage() {
           </motion.div>
 
           {/* Live Subtitles & Captions Overlay */}
-          <div className="absolute bottom-20 left-4 right-4 sm:left-12 sm:right-12 z-20 flex justify-center pointer-events-none">
+          <div className="absolute bottom-12 left-4 right-4 sm:left-12 sm:right-12 z-20 flex justify-center pointer-events-none">
             <AnimatePresence mode="wait">
               {currentCaption && (
                 <motion.div
@@ -194,7 +194,7 @@ export default function VirtualVideoCallPage() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="max-w-2xl bg-black/75 backdrop-blur-xl border border-white/10 px-5 py-3 rounded-2xl text-sm sm:text-base text-center text-white shadow-2xl"
+                  className="max-w-xl bg-black/80 backdrop-blur-xl border border-white/15 px-4 py-2.5 rounded-2xl text-xs sm:text-sm text-center text-white shadow-2xl"
                 >
                   <p className="leading-snug">{currentCaption}</p>
                 </motion.div>
@@ -203,12 +203,12 @@ export default function VirtualVideoCallPage() {
           </div>
 
           {/* Suggested Icebreaker Questions */}
-          <div className="absolute bottom-3 left-4 right-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
+          <div className="absolute bottom-2 left-4 right-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
             {persona.sampleQuestions.map((q, idx) => (
               <button
                 key={idx}
                 onClick={() => sendUserMessage(q)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/15 hover:bg-white/30 backdrop-blur-md border border-white/15 text-xs text-purple-200 hover:text-white whitespace-nowrap transition-all duration-200 cursor-pointer shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 hover:bg-black/90 backdrop-blur-md border border-white/20 text-[11px] text-purple-200 hover:text-white whitespace-nowrap transition-all duration-200 cursor-pointer shadow-sm"
               >
                 <HiSparkles className="text-[10px] text-amber-300" />
                 <span>{q}</span>
@@ -285,12 +285,13 @@ export default function VirtualVideoCallPage() {
         </AnimatePresence>
       </div>
 
-      {/* ── INTERACTIVE REAL-LIFE ACTIVITY DOCK ────────────────────────────── */}
-      <div className="relative z-30 pb-2 px-4 flex items-center justify-center gap-2 overflow-x-auto no-scrollbar">
-        <div className="flex items-center gap-1.5 p-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 shadow-2xl">
+      {/* ── BOTTOM CONTROLS & ACTIVITY BAR ──────────────────────────────────── */}
+      <div className="flex-shrink-0 z-30 flex flex-col items-center gap-2 pb-4 pt-1 bg-gradient-to-t from-black via-black/90 to-transparent">
+        {/* Real-Life Activity Actions */}
+        <div className="flex items-center gap-1.5 p-1 rounded-full bg-black/70 backdrop-blur-xl border border-white/15 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
           <button
             onClick={() => triggerAction(avatarAction === 'standing' ? 'sitting' : 'standing')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer whitespace-nowrap"
             title="Ask companion to stand or sit"
           >
             <span>🪑</span>
@@ -302,7 +303,7 @@ export default function VirtualVideoCallPage() {
               triggerAction('cooking', 8000);
               sendUserMessage("Could you make us some warm coffee?");
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-amber-200 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-amber-200 transition-all cursor-pointer whitespace-nowrap"
             title="Ask companion to prepare coffee/food"
           >
             <span>☕</span>
@@ -311,7 +312,7 @@ export default function VirtualVideoCallPage() {
 
           <button
             onClick={cycleOutfit}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-pink-300 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-pink-300 transition-all cursor-pointer whitespace-nowrap"
             title="Change companion outfit"
           >
             <span>👗</span>
@@ -323,7 +324,7 @@ export default function VirtualVideoCallPage() {
               triggerAction('workout', 7000);
               sendUserMessage("Let's do a quick workout stretch together!");
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-cyan-200 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-cyan-200 transition-all cursor-pointer whitespace-nowrap"
             title="Do a workout session"
           >
             <span>🤸</span>
@@ -332,7 +333,7 @@ export default function VirtualVideoCallPage() {
 
           <button
             onClick={() => triggerAction('wave', 4000)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-emerald-200 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-emerald-200 transition-all cursor-pointer whitespace-nowrap"
             title="Wave hand"
           >
             <span>👋</span>
@@ -341,66 +342,66 @@ export default function VirtualVideoCallPage() {
 
           <button
             onClick={() => triggerAction('kiss', 5000)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-rose-300 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-rose-300 transition-all cursor-pointer whitespace-nowrap"
             title="Blow a kiss"
           >
             <span>💋</span>
             <span>Kiss</span>
           </button>
         </div>
-      </div>
 
-      {/* ── BOTTOM CALL CONTROL DOCK ────────────────────────────────────────── */}
-      <div className="relative z-30 pb-6 pt-2 flex items-center justify-center gap-4 sm:gap-6 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
-        {/* Toggle Microphone */}
-        <button
-          onClick={toggleMic}
-          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-            isMicMuted
-              ? 'bg-rose-600 text-white hover:bg-rose-700 ring-4 ring-rose-500/30'
-              : isListening
-              ? 'bg-emerald-500 text-white hover:bg-emerald-600 ring-4 ring-emerald-400/40 animate-pulse'
-              : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
-          }`}
-          title={isMicMuted ? 'Unmute Mic' : 'Mute Mic'}
-        >
-          {isMicMuted ? <FaMicrophoneSlash className="text-xl" /> : <FaMicrophone className="text-xl" />}
-        </button>
+        {/* Media Control Dock */}
+        <div className="flex items-center justify-center gap-4 sm:gap-6">
+          {/* Toggle Microphone */}
+          <button
+            onClick={toggleMic}
+            className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl cursor-pointer ${
+              isMicMuted
+                ? 'bg-rose-600 text-white hover:bg-rose-700 ring-4 ring-rose-500/30'
+                : isListening
+                ? 'bg-emerald-500 text-white hover:bg-emerald-600 ring-4 ring-emerald-400/40 animate-pulse'
+                : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
+            }`}
+            title={isMicMuted ? 'Unmute Mic' : 'Mute Mic'}
+          >
+            {isMicMuted ? <FaMicrophoneSlash className="text-lg" /> : <FaMicrophone className="text-lg" />}
+          </button>
 
-        {/* Toggle Camera */}
-        <button
-          onClick={toggleVideo}
-          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-            isVideoOff
-              ? 'bg-gray-700 text-white hover:bg-gray-600 ring-4 ring-gray-500/30'
-              : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
-          }`}
-          title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
-        >
-          {isVideoOff ? <FaVideoSlash className="text-xl" /> : <FaVideo className="text-xl" />}
-        </button>
+          {/* Toggle Camera */}
+          <button
+            onClick={toggleVideo}
+            className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl cursor-pointer ${
+              isVideoOff
+                ? 'bg-gray-700 text-white hover:bg-gray-600 ring-4 ring-gray-500/30'
+                : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
+            }`}
+            title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
+          >
+            {isVideoOff ? <FaVideoSlash className="text-lg" /> : <FaVideo className="text-lg" />}
+          </button>
 
-        {/* Toggle In-Call Text Chat */}
-        <button
-          onClick={() => setIsChatDrawerOpen((prev) => !prev)}
-          className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-            isChatDrawerOpen
-              ? 'bg-purple-600 text-white hover:bg-purple-700 ring-4 ring-purple-500/30'
-              : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
-          }`}
-          title="In-call chat messages"
-        >
-          <FaCommentDots className="text-xl" />
-        </button>
+          {/* In-Call Text Chat Toggle */}
+          <button
+            onClick={() => setIsChatDrawerOpen((prev) => !prev)}
+            className={`w-11 h-11 sm:w-13 sm:h-13 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl cursor-pointer ${
+              isChatDrawerOpen
+                ? 'bg-purple-600 text-white'
+                : 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-md'
+            }`}
+            title="Open Chat"
+          >
+            <FaCommentDots className="text-lg" />
+          </button>
 
-        {/* End Call Button */}
-        <button
-          onClick={handleExitCall}
-          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition-all duration-200 shadow-2xl hover:scale-105 ring-4 ring-rose-500/30 cursor-pointer"
-          title="End Video Call"
-        >
-          <FaPhoneSlash className="text-2xl" />
-        </button>
+          {/* End Call / Hang Up */}
+          <button
+            onClick={handleExitCall}
+            className="w-13 h-13 sm:w-15 sm:h-15 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition-all duration-200 shadow-2xl ring-4 ring-rose-500/30 hover:scale-105 active:scale-95 cursor-pointer"
+            title="End Call"
+          >
+            <FaPhoneSlash className="text-xl" />
+          </button>
+        </div>
       </div>
 
       {/* ── CALL ENDED SUMMARY MODAL ────────────────────────────────────────── */}
