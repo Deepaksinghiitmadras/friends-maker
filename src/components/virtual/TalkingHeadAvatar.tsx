@@ -61,9 +61,12 @@ export default function TalkingHeadAvatar({
       if (!e.data || typeof e.data !== 'object') return;
       const { type } = e.data;
       if (type === 'AVATAR_READY') {
-        // Iframe loaded and script ready — send INIT
+        // Iframe loaded and script ready — send INIT with photo URL
         iframeReadyRef.current = true;
-        sendMessage('INIT', { gender: persona.gender === 'woman' ? 'female' : 'male' });
+        sendMessage('INIT', {
+          photoUrl: persona.avatarImage,
+          gender: persona.gender === 'woman' ? 'female' : 'male',
+        });
       } else if (type === 'AVATAR_LOADED') {
         setStatus('ready');
       } else if (type === 'AVATAR_ERROR') {
@@ -92,8 +95,8 @@ export default function TalkingHeadAvatar({
 
   // ── Listening state ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (status !== 'ready' || !isListening) return;
-    sendMessage('LISTENING');
+    if (status !== 'ready') return;
+    sendMessage('LISTENING', { active: isListening });
   }, [isListening, status, sendMessage]);
 
   // ── Activity actions ───────────────────────────────────────────────────────

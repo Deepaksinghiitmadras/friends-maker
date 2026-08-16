@@ -6,299 +6,333 @@
   <title>Avatar Player</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     html, body {
       width: 100%; height: 100%;
-      background: transparent;
+      background: #050510;
       overflow: hidden;
+      font-family: system-ui, sans-serif;
     }
-    #avatar {
+
+    #container {
+      position: relative;
       width: 100%; height: 100%;
-      background: transparent;
+      display: flex; align-items: center; justify-content: center;
     }
-    #status {
-      display: none;
+
+    /* Blurred depth-of-field background */
+    #bg {
+      position: absolute;
+      inset: -15%;
+      background-size: cover;
+      background-position: top center;
+      filter: blur(28px) brightness(0.3) saturate(0.7);
+      transform: scale(1.1);
+    }
+
+    /* Main face photo — CSS 3D perspective head rotation applied via JS */
+    #face {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top center;
+      transform-origin: 50% 38%; /* rotate around face/head center */
+      will-change: transform;
+    }
+
+    /* Canvas overlay for mouth, eye, glow effects */
+    #overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    /* Loading spinner */
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      flex-direction: column;
-      background: rgba(10,5,20,0.92);
+      gap: 14px;
       color: #a78bfa;
-      font-family: system-ui, sans-serif;
       font-size: 13px;
-      gap: 12px;
+      background: rgba(5, 5, 16, 0.96);
+      z-index: 10;
+      transition: opacity 0.5s;
     }
-    #status.show { display: flex; }
+    #loading.hidden { opacity: 0; pointer-events: none; }
     .spinner {
-      width: 40px; height: 40px;
+      width: 38px; height: 38px;
       border: 3px solid rgba(167,139,250,0.2);
       border-top-color: #a78bfa;
       border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      animation: spin 0.75s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
-
-  <!-- TalkingHead importmap — loads from CDN (no webpack needed) -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js/+esm",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
-    }
-  }
-  </script>
 </head>
-
 <body>
-  <div id="avatar"></div>
-  <div id="status" class="show">
-    <div class="spinner"></div>
-    <span id="statusText">Initializing…</span>
+  <div id="container">
+    <div id="bg"></div>
+    <img id="face" crossorigin="anonymous" />
+    <canvas id="overlay"></canvas>
   </div>
 
-  <script type="module">
-    import { TalkingHead } from "talkinghead";
+  <div id="loading">
+    <div class="spinner"></div>
+    <span>Loading avatar…</span>
+  </div>
 
-    // ── Avatar GLB sources (TalkingHead-compatible, verified public) ──────────
-    // Using ReadyPlayerMe with full morphTargets parameter for ARKit+Oculus visemes
-    const AVATAR_URLS = {
-      female: [
-        'https://models.readyplayer.me/6399c4e3d2c73e2dae2a3ab2.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
-        'https://models.readyplayer.me/638df693d72bffc6fa17943c.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
-      ],
-      male: [
-        'https://models.readyplayer.me/6639b7f02a57ec67d82fdf43.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
-        'https://models.readyplayer.me/664de748c3d1f54d86abb1c4.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
-      ],
-    };
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────────
+    let isSpeaking = false;
+    let isListening = false;
+    let audioLevel = 0;
+    let gender = 'female';
+    let initialized = false;
+    let currentAction = 'idle';
 
-    let head = null;
-    let currentGender = 'female';
-    let streamActive = false;
-    let pcmInterval = null;
-    let currentAudioLevel = 0;
-    let currentlySpeaking = false;
+    // Blink state
+    let blinkTimer = 0;
+    let blinkPhase = 0;      // 0=open, 1=closing, 2=opening
+    let blinkProgress = 0;
+    let blinkInterval = 3.5 + Math.random() * 3;
 
-    const avatarEl = document.getElementById('avatar');
-    const statusEl = document.getElementById('status');
-    const statusTextEl = document.getElementById('statusText');
+    const faceEl   = document.getElementById('face');
+    const bgEl     = document.getElementById('bg');
+    const overlayEl= document.getElementById('overlay');
+    const loadEl   = document.getElementById('loading');
+    const ctx      = overlayEl.getContext('2d');
 
-    function setStatus(text) {
-      statusTextEl.textContent = text;
-      statusEl.classList.add('show');
+    let W = 0, H = 0;
+
+    function resize() {
+      W = overlayEl.width  = window.innerWidth;
+      H = overlayEl.height = window.innerHeight;
     }
-    function hideStatus() {
-      statusEl.classList.remove('show');
-    }
+    window.addEventListener('resize', resize);
+    resize();
 
-    // ── Initialize TalkingHead ──────────────────────────────────────────────
-    async function init(gender, avatarIdx) {
-      setStatus('Creating 3D engine…');
-      try {
-        head = new TalkingHead(avatarEl, {
-          ttsEndpoint: null,
-          lipsyncModules: ['en'],
-          lipsyncLang: 'en',
-          cameraView: 'upper',
-          cameraDistance: 0,
-          cameraRotateEnable: false,
-          cameraPanEnable: false,
-          cameraZoomEnable: false,
-          modelFPS: 60,
-          // Cinematic 3-point lighting
-          lightAmbientColor: 0xffffff,
-          lightAmbientIntensity: 1.8,
-          lightDirectColor: 0xfff5e6,
-          lightDirectIntensity: 18,
-          lightDirectPhi: 0.15,
-          lightDirectTheta: 1.6,
-          lightSpotColor: 0x4477ff,
-          lightSpotIntensity: 6,
-          lightSpotPhi: 0.25,
-          lightSpotTheta: 3.2,
-          lightSpotDispersion: 1,
-          // Expressive behavior
-          avatarMood: 'neutral',
-          avatarIdleEyeContact: 0.45,
-          avatarIdleHeadMove: 0.7,
-          avatarSpeakingEyeContact: 0.75,
-          avatarSpeakingHeadMove: 0.55,
-        });
-
-        const urls = AVATAR_URLS[gender] || AVATAR_URLS.female;
-        const url = urls[avatarIdx % urls.length];
-
-        setStatus('Loading 3D avatar…');
-
-        await head.showAvatar({
-          url,
-          body: gender === 'female' ? 'F' : 'M',
-          lipsyncLang: 'en',
-          avatarMood: 'happy',
-          avatarSpeakingEyeContact: 0.8,
-          avatarSpeakingHeadMove: 0.6,
-          baseline: { headRotateX: -0.03 },
-        });
-
-        hideStatus();
+    // ── Init avatar with persona photo ─────────────────────────────────────────
+    function initAvatar(photoUrl, gen) {
+      gender = gen || 'female';
+      bgEl.style.backgroundImage = `url('${photoUrl}')`;
+      faceEl.onload = () => {
+        initialized = true;
+        loadEl.classList.add('hidden');
         window.parent.postMessage({ type: 'AVATAR_LOADED' }, '*');
-      } catch (err) {
-        console.error('Avatar init error:', err);
-        setStatus('⚠️ ' + (err?.message || 'Load failed'));
-        window.parent.postMessage({ type: 'AVATAR_ERROR', error: String(err) }, '*');
+      };
+      faceEl.onerror = () => {
+        window.parent.postMessage({ type: 'AVATAR_ERROR', error: 'photo load failed' }, '*');
+      };
+      faceEl.src = photoUrl;
+    }
 
-        // Try next avatar index after 2s
-        const nextIdx = (avatarIdx + 1) % 2;
-        if (nextIdx !== avatarIdx) {
-          setTimeout(() => {
-            if (head) { try { head = null; } catch (_) {} }
-            avatarEl.innerHTML = '';
-            init(gender, nextIdx);
-          }, 2000);
+    // ── 60 FPS animation loop ─────────────────────────────────────────────────
+    let prevTs = 0;
+
+    function animate(ts) {
+      requestAnimationFrame(animate);
+      const dt = Math.min((ts - prevTs) / 1000, 0.05);
+      prevTs = ts;
+
+      ctx.clearRect(0, 0, W, H);
+
+      if (!initialized) return;
+
+      const t = ts / 1000;
+
+      // ── CSS 3D Head rotation (perspective transform on <img>) ─────────────
+      // Primary idle sway
+      let rotY = Math.sin(t * 0.46) * 10;      // ±10° side-to-side
+      let rotX = Math.sin(t * 0.31) * 4;       // ±4° nod
+      let scale = 1 + Math.sin(t * 0.39) * 0.017; // breathing
+
+      // Action modifiers
+      if (currentAction === 'kiss') {
+        rotX += 4;   // lean forward
+        scale += 0.06;
+      } else if (currentAction === 'wave') {
+        rotY += Math.sin(t * 4) * 5;
+      } else if (currentAction === 'workout') {
+        rotX += Math.abs(Math.sin(t * 5)) * 8 - 4;
+        scale += Math.abs(Math.sin(t * 5)) * 0.02;
+      } else if (currentAction === 'cooking') {
+        rotY -= 6; // looking slightly down
+        rotX += 5;
+      } else if (currentAction === 'standing') {
+        scale *= 0.78;  // zoom out (show more body)
+      }
+
+      // Speaking: add micro-jitter + lean forward
+      if (isSpeaking) {
+        rotY += Math.sin(t * 7.5) * (2.5 + audioLevel * 3.5);
+        rotX += Math.sin(t * 5.3) * (1.5 + audioLevel * 2);
+        rotX += 2; // lean slightly toward camera
+        scale += audioLevel * 0.012;
+      }
+
+      // Listening: curious head tilt
+      if (isListening) {
+        rotY += 7;
+        rotX -= 3;
+      }
+
+      // Clamp
+      rotY = Math.max(-18, Math.min(18, rotY));
+      rotX = Math.max(-10, Math.min(12, rotX));
+      scale = Math.max(0.7, Math.min(1.25, scale));
+
+      faceEl.style.transform = `perspective(650px) rotateY(${rotY.toFixed(2)}deg) rotateX(${rotX.toFixed(2)}deg) scale(${scale.toFixed(4)})`;
+
+      // ── Eye blink ─────────────────────────────────────────────────────────
+      blinkTimer += dt;
+      if (blinkPhase === 0 && blinkTimer >= blinkInterval) {
+        blinkPhase = 1; blinkProgress = 0; blinkTimer = 0;
+        blinkInterval = 3 + Math.random() * 5;
+      }
+      let blinkAmt = 0;
+      if (blinkPhase === 1) {
+        blinkProgress += dt / 0.065;
+        blinkAmt = Math.min(blinkProgress, 1);
+        if (blinkProgress >= 1) { blinkPhase = 2; blinkProgress = 0; }
+      } else if (blinkPhase === 2) {
+        blinkProgress += dt / 0.09;
+        blinkAmt = 1 - Math.min(blinkProgress, 1);
+        if (blinkProgress >= 1) { blinkPhase = 0; blinkAmt = 0; }
+      }
+
+      if (blinkAmt > 0.02) {
+        const eyeY  = H * 0.37;
+        const eyeH  = H * 0.055 * blinkAmt;
+        const lX = W * 0.35, rX = W * 0.65;
+        const eyeW  = W * 0.11;
+
+        // Skin-tone lid colour
+        const skinR = gender === 'female' ? 238 : 200;
+        const skinG = gender === 'female' ? 195 : 162;
+        const skinB = gender === 'female' ? 168 : 130;
+
+        ctx.fillStyle = `rgba(${skinR},${skinG},${skinB},${blinkAmt * 0.92})`;
+        ctx.beginPath();
+        ctx.ellipse(lX, eyeY, eyeW, eyeH + 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(rX, eyeY, eyeW, eyeH + 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // ── Mouth animation (speaking) ────────────────────────────────────────
+      if (isSpeaking && audioLevel > 0.02) {
+        const mX = W * 0.5;
+        const mY = H * 0.658;
+        const mW = W * 0.09;
+        // Mouth opens proportional to audioLevel + fast wiggle
+        const openH = Math.max(1.5, audioLevel * H * 0.048 + Math.sin(t * 18) * H * 0.006);
+
+        // Dark interior
+        ctx.beginPath();
+        ctx.ellipse(mX, mY + openH * 0.35, mW * 0.68, openH, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(18, 4, 4, 0.9)';
+        ctx.fill();
+
+        // Teeth hint
+        if (openH > H * 0.015) {
+          ctx.beginPath();
+          ctx.ellipse(mX, mY + openH * 0.1, mW * 0.55, openH * 0.35, 0, 0, Math.PI);
+          ctx.fillStyle = 'rgba(255,252,248, 0.85)';
+          ctx.fill();
         }
+
+        // Lower lip
+        const lipColor = gender === 'female'
+          ? `rgba(195, 70, 95, 0.6)`
+          : `rgba(160, 88, 88, 0.5)`;
+        ctx.beginPath();
+        ctx.ellipse(mX, mY + openH + 2, mW, openH * 0.32, 0, 0, Math.PI);
+        ctx.fillStyle = lipColor;
+        ctx.fill();
+      }
+
+      // ── Speaking warmth glow ──────────────────────────────────────────────
+      if (isSpeaking && audioLevel > 0.05) {
+        const grd = ctx.createRadialGradient(W*0.5, H*0.4, H*0.04, W*0.5, H*0.4, H*0.44);
+        grd.addColorStop(0, `rgba(255,190,130,${0.04 + audioLevel*0.08})`);
+        grd.addColorStop(1, 'rgba(255,140,100,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // ── Listening pulse ───────────────────────────────────────────────────
+      if (isListening) {
+        const pulse = (Math.sin(t * 2.5) + 1) * 0.5;
+        const grd2 = ctx.createRadialGradient(W*0.5, H*0.38, 0, W*0.5, H*0.38, H*0.25);
+        grd2.addColorStop(0, `rgba(100,240,160,${pulse * 0.07})`);
+        grd2.addColorStop(1, 'transparent');
+        ctx.fillStyle = grd2;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // ── Kiss action: heart particles ──────────────────────────────────────
+      if (currentAction === 'kiss') {
+        const hue = (t * 60) % 360;
+        ctx.font = `${18 + Math.sin(t * 3) * 4}px sans-serif`;
+        ctx.fillStyle = `hsl(${hue},80%,65%)`;
+        ctx.globalAlpha = 0.7 + Math.sin(t * 4) * 0.3;
+        ctx.fillText('💋', W * 0.5 - 12 + Math.sin(t*2)*8, H * 0.22 + Math.sin(t*2.5)*12);
+        ctx.globalAlpha = 1;
+      }
+
+      // ── Wave action: wave emoji ───────────────────────────────────────────
+      if (currentAction === 'wave') {
+        ctx.font = `${22 + Math.sin(t * 5) * 3}px sans-serif`;
+        ctx.globalAlpha = 0.8;
+        ctx.fillText('👋', W * 0.78, H * 0.35 + Math.sin(t * 5) * 8);
+        ctx.globalAlpha = 1;
       }
     }
 
-    // ── Audio-driven lip sync ───────────────────────────────────────────────
-    async function startSpeaking(audioLevel) {
-      if (!head || streamActive) return;
-      try {
-        streamActive = true;
-        await head.streamStart({ lipsyncLang: 'en', avatarMood: 'happy' });
-        head.setMood('happy');
-        startPCMFeed(audioLevel);
-      } catch (e) {
-        streamActive = false;
-        console.warn('streamStart failed:', e);
-      }
-    }
+    requestAnimationFrame(animate);
 
-    function startPCMFeed(initialLevel) {
-      if (pcmInterval) clearInterval(pcmInterval);
-
-      const sampleRate = 22050;
-      const chunkMs = 80;
-      const numSamples = Math.floor(sampleRate * chunkMs / 1000);
-
-      // Gender-specific fundamental frequency (pitch)
-      const f0 = currentGender === 'female' ? 230 : 135;
-
-      pcmInterval = setInterval(() => {
-        if (!head || !streamActive) { clearInterval(pcmInterval); return; }
-        const amp = Math.max(0.04, currentAudioLevel) * 26000;
-        const pcm = new Int16Array(numSamples);
-        for (let i = 0; i < numSamples; i++) {
-          const t = i / sampleRate;
-          // Speech-like harmonic series
-          pcm[i] = Math.round(amp * (
-            0.55 * Math.sin(2 * Math.PI * f0 * t) +
-            0.22 * Math.sin(2 * Math.PI * f0 * 2 * t) +
-            0.13 * Math.sin(2 * Math.PI * f0 * 3 * t) +
-            0.05 * Math.sin(2 * Math.PI * f0 * 4 * t) +
-            0.05 * (Math.random() - 0.5)
-          ));
-        }
-        try { head.streamAudio(pcm.buffer); } catch (e) {}
-      }, chunkMs);
-    }
-
-    async function stopSpeaking() {
-      if (pcmInterval) { clearInterval(pcmInterval); pcmInterval = null; }
-      if (!head || !streamActive) return;
-      try {
-        head.streamNotifyEnd();
-        setTimeout(() => {
-          try { head.streamStop(); } catch (_) {}
-          streamActive = false;
-          if (head) head.setMood('neutral');
-        }, 600);
-      } catch (e) {
-        streamActive = false;
-      }
-    }
-
-    // ── Handle messages from parent React app ───────────────────────────────
-    window.addEventListener('message', async (e) => {
+    // ── postMessage handler ───────────────────────────────────────────────────
+    window.addEventListener('message', (e) => {
       if (!e.data || typeof e.data !== 'object') return;
       const { type, payload } = e.data;
 
       switch (type) {
         case 'INIT':
-          currentGender = payload?.gender || 'female';
-          await init(currentGender, 0);
+          initAvatar(payload.photoUrl, payload.gender);
           break;
-
         case 'SPEAKING_START':
-          currentAudioLevel = payload?.audioLevel || 0.3;
-          if (!currentlySpeaking) {
-            currentlySpeaking = true;
-            await startSpeaking(currentAudioLevel);
-          }
+          isSpeaking = true;
+          audioLevel = payload?.audioLevel ?? 0.3;
           break;
-
         case 'SPEAKING_UPDATE':
-          currentAudioLevel = payload?.audioLevel || 0.3;
+          audioLevel = payload?.audioLevel ?? 0.3;
           break;
-
         case 'SPEAKING_STOP':
-          currentlySpeaking = false;
-          await stopSpeaking();
+          isSpeaking = false;
+          audioLevel = 0;
           break;
-
         case 'LISTENING':
-          if (head) {
-            head.setMood('happy');
-            head.lookAtCamera(3000);
-          }
+          isListening = payload?.active !== false;
           break;
-
         case 'SET_ACTION':
-          if (!head) break;
-          const action = payload?.action;
-          switch (action) {
-            case 'standing':
-              head.setView('full', { cameraDistance: 0.5 });
-              break;
-            case 'sitting':
-              head.setView('mid', { cameraDistance: 0.2 });
-              break;
-            case 'kiss':
-              head.setView('head', { cameraDistance: -0.15 });
-              head.setMood('love');
-              break;
-            case 'wave':
-              head.setView('upper', {});
-              head.setMood('happy');
-              head.speakEmoji('👋');
-              break;
-            case 'cooking':
-              head.setView('upper', { cameraX: -0.08 });
-              head.setMood('happy');
-              break;
-            case 'workout':
-              head.setView('upper', {});
-              head.setMood('neutral');
-              head.speakEmoji('💪');
-              break;
-            case 'changing_clothes':
-              head.setView('full', {});
-              head.setMood('happy');
-              break;
-            default:
-              head.setView('upper', {});
-              head.setMood('neutral');
-          }
+          currentAction = payload?.action || 'idle';
           break;
-
         case 'SET_MOOD':
-          if (head) head.setMood(payload?.mood || 'neutral');
+          // Mood handled via speaking/listening state
           break;
       }
     });
 
-    // Signal ready to receive INIT message
+    // Notify parent we're ready for INIT
     window.parent.postMessage({ type: 'AVATAR_READY' }, '*');
   </script>
 </body>
