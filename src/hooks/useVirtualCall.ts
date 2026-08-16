@@ -75,6 +75,8 @@ export function useVirtualCall(persona: VirtualPersona) {
   const lastCompanionSpeechEndRef = useRef<number>(0);
   // Track the "explicit" action the AI chose (not speaking)
   const currentExplicitActionRef = useRef<string | null>(null);
+  // Ref to break circular dependency: speakText → startListening → sendUserMessage → speakText
+  const startListeningRef = useRef<() => void>(() => {});
 
   // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -236,11 +238,11 @@ export function useVirtualCall(persona: VirtualPersona) {
         // Resume listening after echo decay
         setTimeout(() => {
           isSpeakingRef.current = false;
-          startListening();
+          startListeningRef.current();
         }, 450);
       };
 
-      // Try Neural TTS API first
+      // Try Neural TTS API first (returns proxied audio/mpeg binary stream)
       try {
         const ttsRes = await fetch('/api/virtual/tts', {
           method: 'POST',
@@ -252,19 +254,28 @@ export function useVirtualCall(persona: VirtualPersona) {
           }),
         });
 
-        if (ttsRes.ok) {
-          const ttsData = await ttsRes.json();
-          if (ttsData.audioUrl) {
-            const audio = new Audio(ttsData.audioUrl);
-            currentAudioElementRef.current = audio;
-            audio.onended = handleSpeechEnd;
-            audio.onerror = () => speakWithWebSpeech(text, handleSpeechEnd);
-            await audio.play();
-            return;
-          }
+        if (ttsRes.ok && ttsRes.headers.get('content-type')?.includes('audio')) {
+          // Server proxied the audio — create a local blob URL
+          const audioBlob = await ttsRes.blob();
+          const blobUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(blobUrl);
+          currentAudioElementRef.current = audio;
+          audio.onended = () => {
+            URL.revokeObjectURL(blobUrl);
+            handleSpeechEnd();
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(blobUrl);
+            console.warn('[TTS] Audio blob playback failed, falling back to WebSpeech');
+            speakWithWebSpeech(text, handleSpeechEnd);
+          };
+          await audio.play();
+          return;
+        } else {
+          console.warn('[TTS] Server returned non-audio response, using WebSpeech');
         }
       } catch (err) {
-        console.warn('Neural TTS error, falling back to WebSpeech:', err);
+        console.warn('[TTS] Neural TTS error, falling back to WebSpeech:', err);
       }
 
       speakWithWebSpeech(text, handleSpeechEnd);
@@ -276,28 +287,66 @@ export function useVirtualCall(persona: VirtualPersona) {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) { onEnd(); return; }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.pitch = persona.voiceStyle.pitch;
-    utterance.rate = persona.voiceStyle.rate;
-    utterance.lang = persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US';
 
-    const voices = window.speechSynthesis.getVoices();
-    if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
-      const found = voices.find((v) =>
-        persona.voiceStyle.preferredVoiceNames?.some((pref) =>
-          v.name.toLowerCase().includes(pref.toLowerCase())
-        )
-      );
-      if (found) utterance.voice = found;
-      else if (persona.id === 'ananya-sharma') {
-        const iv = voices.find((v) => v.lang.includes('hi') || v.lang.includes('IN'));
-        if (iv) utterance.voice = iv;
+    const doSpeak = () => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.pitch = persona.voiceStyle.pitch;
+      utterance.rate = persona.voiceStyle.rate;
+      utterance.lang = persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US';
+
+      const voices = window.speechSynthesis.getVoices();
+      if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
+        const found = voices.find((v) =>
+          persona.voiceStyle.preferredVoiceNames?.some((pref) =>
+            v.name.toLowerCase().includes(pref.toLowerCase())
+          )
+        );
+        if (found) utterance.voice = found;
+        else if (persona.id === 'ananya-sharma') {
+          const iv = voices.find((v) => v.lang.includes('hi') || v.lang.includes('IN'));
+          if (iv) utterance.voice = iv;
+        }
       }
-    }
 
-    utterance.onend = onEnd;
-    utterance.onerror = onEnd;
-    window.speechSynthesis.speak(utterance);
+      utterance.onend = onEnd;
+      utterance.onerror = () => {
+        console.warn('[WebSpeech] Utterance error, ending speech');
+        onEnd();
+      };
+      window.speechSynthesis.speak(utterance);
+
+      // Chrome bug workaround: speechSynthesis pauses after ~15s
+      // Periodically resume to prevent stalling
+      const resumeInterval = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          clearInterval(resumeInterval);
+        } else {
+          window.speechSynthesis.resume();
+        }
+      }, 5000);
+      utterance.onend = () => {
+        clearInterval(resumeInterval);
+        onEnd();
+      };
+    };
+
+    // Voices might not be loaded yet — wait for them
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length === 0) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        doSpeak();
+      };
+      // Fallback: if voices still don't load after 500ms, speak anyway
+      setTimeout(() => {
+        if (window.speechSynthesis.onvoiceschanged) {
+          window.speechSynthesis.onvoiceschanged = null;
+          doSpeak();
+        }
+      }, 500);
+    } else {
+      doSpeak();
+    }
   };
 
   // ── 4. TRIGGER ACTION (MANUAL BUTTONS) ────────────────────────────────────────
@@ -481,6 +530,10 @@ export function useVirtualCall(persona: VirtualPersona) {
       console.warn('Failed to start speech recognition:', err);
     }
   }, [callStatus, isMicMuted, persona.id, sendUserMessage]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   // ── 7. INITIAL GREETING ───────────────────────────────────────────────────────
 
