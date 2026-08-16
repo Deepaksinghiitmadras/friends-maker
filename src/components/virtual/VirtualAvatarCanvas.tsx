@@ -164,15 +164,7 @@ export default function VirtualAvatarCanvas({
                 loop
                 muted
                 playsInline
-                onCanPlayThrough={() => setActionVideoReady(true)}
-                onPlaying={() => setActionVideoReady(true)}
-                onError={() => {
-                  console.warn(`[VIDEO] Failed to load: ${actionVideoSrc}`);
-                  setActionVideoReady(false);
-                }}
-                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-200 ${
-                  actionVideoReady ? 'opacity-100' : 'opacity-0'
-                }`}
+                className="absolute inset-0 w-full h-full object-cover object-center rounded-2xl opacity-100 z-10"
               />
             )}
 
