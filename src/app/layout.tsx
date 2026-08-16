@@ -5,6 +5,9 @@ import TopNav from "@/components/navbar/TopNavGlass";
 import { auth } from "@/auth";
 import NextTopLoader from "nextjs-toploader";
 
+// Root layout reads auth session — must be dynamic on every request
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: "Friends Maker",
   description:

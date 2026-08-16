@@ -1,30 +1,33 @@
 import { auth } from "@/auth";
 import { Button } from "@nextui-org/react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import dynamicImport from "next/dynamic";
 
-const DynamicHeartAnimation = dynamic(
+// Home page reads auth session — cannot be statically rendered
+export const dynamic = 'force-dynamic';
+
+const DynamicHeartAnimation = dynamicImport(
   () =>
     import(
       "@/components/animations/HeartAnimation"
     ),
   { ssr: false }
 );
-const DynamicAnimatedBackground = dynamic(
+const DynamicAnimatedBackground = dynamicImport(
   () =>
     import(
       "@/components/animations/AnimatedBackground"
     ),
   { ssr: false }
 );
-const DynamicAnimatedStats = dynamic(
+const DynamicAnimatedStats = dynamicImport(
   () =>
     import(
       "@/components/animations/AnimatedStats"
     ),
   { ssr: false }
 );
-const DynamicAnimatedFeatures = dynamic(
+const DynamicAnimatedFeatures = dynamicImport(
   () =>
     import(
       "@/components/animations/AnimatedFeatures"

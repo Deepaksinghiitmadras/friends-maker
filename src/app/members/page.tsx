@@ -6,6 +6,9 @@ import PaginationComponent from "@/components/PaginationComponent";
 import { GetMemberParams } from "@/types";
 import EmptyState from "@/components/EmptyState";
 
+// This page reads auth session (headers/cookies) so it must be dynamic
+export const dynamic = 'force-dynamic';
+
 export default async function MembersPage({
   searchParams,
 }: {
