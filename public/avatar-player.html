@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avatar Player</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: transparent;
+      overflow: hidden;
+    }
+    #avatar {
+      width: 100%; height: 100%;
+      background: transparent;
+    }
+    #status {
+      display: none;
+      position: absolute;
+      inset: 0;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: rgba(10,5,20,0.92);
+      color: #a78bfa;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      gap: 12px;
+    }
+    #status.show { display: flex; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(167,139,250,0.2);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <!-- TalkingHead importmap — loads from CDN (no webpack needed) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <div id="avatar"></div>
+  <div id="status" class="show">
+    <div class="spinner"></div>
+    <span id="statusText">Initializing…</span>
+  </div>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+
+    // ── Avatar GLB sources (TalkingHead-compatible, verified public) ──────────
+    // Using ReadyPlayerMe with full morphTargets parameter for ARKit+Oculus visemes
+    const AVATAR_URLS = {
+      female: [
+        'https://models.readyplayer.me/6399c4e3d2c73e2dae2a3ab2.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
+        'https://models.readyplayer.me/638df693d72bffc6fa17943c.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
+      ],
+      male: [
+        'https://models.readyplayer.me/6639b7f02a57ec67d82fdf43.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
+        'https://models.readyplayer.me/664de748c3d1f54d86abb1c4.glb?morphTargets=ARKit,Oculus%20Visemes&textureAtlas=1024',
+      ],
+    };
+
+    let head = null;
+    let currentGender = 'female';
+    let streamActive = false;
+    let pcmInterval = null;
+    let currentAudioLevel = 0;
+    let currentlySpeaking = false;
+
+    const avatarEl = document.getElementById('avatar');
+    const statusEl = document.getElementById('status');
+    const statusTextEl = document.getElementById('statusText');
+
+    function setStatus(text) {
+      statusTextEl.textContent = text;
+      statusEl.classList.add('show');
+    }
+    function hideStatus() {
+      statusEl.classList.remove('show');
+    }
+
+    // ── Initialize TalkingHead ──────────────────────────────────────────────
+    async function init(gender, avatarIdx) {
+      setStatus('Creating 3D engine…');
+      try {
+        head = new TalkingHead(avatarEl, {
+          ttsEndpoint: null,
+          lipsyncModules: ['en'],
+          lipsyncLang: 'en',
+          cameraView: 'upper',
+          cameraDistance: 0,
+          cameraRotateEnable: false,
+          cameraPanEnable: false,
+          cameraZoomEnable: false,
+          modelFPS: 60,
+          // Cinematic 3-point lighting
+          lightAmbientColor: 0xffffff,
+          lightAmbientIntensity: 1.8,
+          lightDirectColor: 0xfff5e6,
+          lightDirectIntensity: 18,
+          lightDirectPhi: 0.15,
+          lightDirectTheta: 1.6,
+          lightSpotColor: 0x4477ff,
+          lightSpotIntensity: 6,
+          lightSpotPhi: 0.25,
+          lightSpotTheta: 3.2,
+          lightSpotDispersion: 1,
+          // Expressive behavior
+          avatarMood: 'neutral',
+          avatarIdleEyeContact: 0.45,
+          avatarIdleHeadMove: 0.7,
+          avatarSpeakingEyeContact: 0.75,
+          avatarSpeakingHeadMove: 0.55,
+        });
+
+        const urls = AVATAR_URLS[gender] || AVATAR_URLS.female;
+        const url = urls[avatarIdx % urls.length];
+
+        setStatus('Loading 3D avatar…');
+
+        await head.showAvatar({
+          url,
+          body: gender === 'female' ? 'F' : 'M',
+          lipsyncLang: 'en',
+          avatarMood: 'happy',
+          avatarSpeakingEyeContact: 0.8,
+          avatarSpeakingHeadMove: 0.6,
+          baseline: { headRotateX: -0.03 },
+        });
+
+        hideStatus();
+        window.parent.postMessage({ type: 'AVATAR_LOADED' }, '*');
+      } catch (err) {
+        console.error('Avatar init error:', err);
+        setStatus('⚠️ ' + (err?.message || 'Load failed'));
+        window.parent.postMessage({ type: 'AVATAR_ERROR', error: String(err) }, '*');
+
+        // Try next avatar index after 2s
+        const nextIdx = (avatarIdx + 1) % 2;
+        if (nextIdx !== avatarIdx) {
+          setTimeout(() => {
+            if (head) { try { head = null; } catch (_) {} }
+            avatarEl.innerHTML = '';
+            init(gender, nextIdx);
+          }, 2000);
+        }
+      }
+    }
+
+    // ── Audio-driven lip sync ───────────────────────────────────────────────
+    async function startSpeaking(audioLevel) {
+      if (!head || streamActive) return;
+      try {
+        streamActive = true;
+        await head.streamStart({ lipsyncLang: 'en', avatarMood: 'happy' });
+        head.setMood('happy');
+        startPCMFeed(audioLevel);
+      } catch (e) {
+        streamActive = false;
+        console.warn('streamStart failed:', e);
+      }
+    }
+
+    function startPCMFeed(initialLevel) {
+      if (pcmInterval) clearInterval(pcmInterval);
+
+      const sampleRate = 22050;
+      const chunkMs = 80;
+      const numSamples = Math.floor(sampleRate * chunkMs / 1000);
+
+      // Gender-specific fundamental frequency (pitch)
+      const f0 = currentGender === 'female' ? 230 : 135;
+
+      pcmInterval = setInterval(() => {
+        if (!head || !streamActive) { clearInterval(pcmInterval); return; }
+        const amp = Math.max(0.04, currentAudioLevel) * 26000;
+        const pcm = new Int16Array(numSamples);
+        for (let i = 0; i < numSamples; i++) {
+          const t = i / sampleRate;
+          // Speech-like harmonic series
+          pcm[i] = Math.round(amp * (
+            0.55 * Math.sin(2 * Math.PI * f0 * t) +
+            0.22 * Math.sin(2 * Math.PI * f0 * 2 * t) +
+            0.13 * Math.sin(2 * Math.PI * f0 * 3 * t) +
+            0.05 * Math.sin(2 * Math.PI * f0 * 4 * t) +
+            0.05 * (Math.random() - 0.5)
+          ));
+        }
+        try { head.streamAudio(pcm.buffer); } catch (e) {}
+      }, chunkMs);
+    }
+
+    async function stopSpeaking() {
+      if (pcmInterval) { clearInterval(pcmInterval); pcmInterval = null; }
+      if (!head || !streamActive) return;
+      try {
+        head.streamNotifyEnd();
+        setTimeout(() => {
+          try { head.streamStop(); } catch (_) {}
+          streamActive = false;
+          if (head) head.setMood('neutral');
+        }, 600);
+      } catch (e) {
+        streamActive = false;
+      }
+    }
+
+    // ── Handle messages from parent React app ───────────────────────────────
+    window.addEventListener('message', async (e) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      const { type, payload } = e.data;
+
+      switch (type) {
+        case 'INIT':
+          currentGender = payload?.gender || 'female';
+          await init(currentGender, 0);
+          break;
+
+        case 'SPEAKING_START':
+          currentAudioLevel = payload?.audioLevel || 0.3;
+          if (!currentlySpeaking) {
+            currentlySpeaking = true;
+            await startSpeaking(currentAudioLevel);
+          }
+          break;
+
+        case 'SPEAKING_UPDATE':
+          currentAudioLevel = payload?.audioLevel || 0.3;
+          break;
+
+        case 'SPEAKING_STOP':
+          currentlySpeaking = false;
+          await stopSpeaking();
+          break;
+
+        case 'LISTENING':
+          if (head) {
+            head.setMood('happy');
+            head.lookAtCamera(3000);
+          }
+          break;
+
+        case 'SET_ACTION':
+          if (!head) break;
+          const action = payload?.action;
+          switch (action) {
+            case 'standing':
+              head.setView('full', { cameraDistance: 0.5 });
+              break;
+            case 'sitting':
+              head.setView('mid', { cameraDistance: 0.2 });
+              break;
+            case 'kiss':
+              head.setView('head', { cameraDistance: -0.15 });
+              head.setMood('love');
+              break;
+            case 'wave':
+              head.setView('upper', {});
+              head.setMood('happy');
+              head.speakEmoji('👋');
+              break;
+            case 'cooking':
+              head.setView('upper', { cameraX: -0.08 });
+              head.setMood('happy');
+              break;
+            case 'workout':
+              head.setView('upper', {});
+              head.setMood('neutral');
+              head.speakEmoji('💪');
+              break;
+            case 'changing_clothes':
+              head.setView('full', {});
+              head.setMood('happy');
+              break;
+            default:
+              head.setView('upper', {});
+              head.setMood('neutral');
+          }
+          break;
+
+        case 'SET_MOOD':
+          if (head) head.setMood(payload?.mood || 'neutral');
+          break;
+      }
+    });
+
+    // Signal ready to receive INIT message
+    window.parent.postMessage({ type: 'AVATAR_READY' }, '*');
+  </script>
+</body>
+</html>
