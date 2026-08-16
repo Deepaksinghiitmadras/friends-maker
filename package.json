@@ -16,6 +16,8 @@
     "@hookform/resolvers": "^3.9.0",
     "@nextui-org/react": "^2.4.6",
     "@prisma/client": "^5.19.0",
+    "@upstash/redis": "^1.38.2",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.4.0",
     "clsx": "^2.1.1",
