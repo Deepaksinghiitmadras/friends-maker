@@ -290,7 +290,14 @@ export default function VirtualVideoCallPage() {
         {/* Real-Life Activity Actions */}
         <div className="flex items-center gap-1.5 p-1 rounded-full bg-black/70 backdrop-blur-xl border border-white/15 shadow-2xl overflow-x-auto no-scrollbar max-w-full">
           <button
-            onClick={() => triggerAction(avatarAction === 'standing' ? 'sitting' : 'standing')}
+            onClick={() => {
+              if (avatarAction === 'standing') {
+                triggerAction('idle');
+              } else {
+                triggerAction('standing', 10000);
+                sendUserMessage('Can you stand up and show me your outfit?');
+              }
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer whitespace-nowrap"
             title="Ask companion to stand or sit"
           >
@@ -300,7 +307,7 @@ export default function VirtualVideoCallPage() {
 
           <button
             onClick={() => {
-              triggerAction('cooking', 8000);
+              triggerAction('coffee' as any, 8000);
               sendUserMessage("Could you make us some warm coffee?");
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-amber-200 transition-all cursor-pointer whitespace-nowrap"

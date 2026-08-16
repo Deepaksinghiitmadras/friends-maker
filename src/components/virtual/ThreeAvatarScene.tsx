@@ -4,11 +4,22 @@ export type AvatarActionType =
   | 'speaking'
   | 'standing'
   | 'sitting'
+  | 'coffee'
   | 'cooking'
   | 'changing_clothes'
   | 'workout'
   | 'wave'
-  | 'kiss';
+  | 'kiss'
+  | 'laugh'
+  | 'blush'
+  | 'cheers'
+  | 'cozy'
+  | 'lean_in'
+  | 'thinking'
+  | 'hair_flip'
+  | 'wink'
+  | 'heart_hands'
+  | 'phone';
 
 export type OutfitStyle = 'casual' | 'formal' | 'cozy' | 'sporty';
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { VirtualPersona } from '@/lib/virtualPersonas';
+import { VirtualPersona, getAvailableVideoActions } from '@/lib/virtualPersonas';
 
 export interface ChatEntry {
   sender: 'user' | 'persona';
@@ -15,6 +15,29 @@ declare global {
     __ACTIVE_MEDIA_STREAMS__?: MediaStream[];
   }
 }
+
+// All possible avatar action types
+export type AvatarActionType =
+  | 'idle'
+  | 'speaking'
+  | 'standing'
+  | 'sitting'
+  | 'coffee'
+  | 'cooking'
+  | 'changing_clothes'
+  | 'workout'
+  | 'wave'
+  | 'kiss'
+  | 'laugh'
+  | 'blush'
+  | 'cheers'
+  | 'cozy'
+  | 'lean_in'
+  | 'thinking'
+  | 'hair_flip'
+  | 'wink'
+  | 'heart_hands'
+  | 'phone';
 
 export function useVirtualCall(persona: VirtualPersona) {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
@@ -33,18 +56,8 @@ export function useVirtualCall(persona: VirtualPersona) {
   const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
   const [audioLevel, setAudioLevel] = useState<number>(0);
 
-  // Activity & Outfit State
-  const [avatarAction, setAvatarAction] = useState<
-    | 'idle'
-    | 'speaking'
-    | 'standing'
-    | 'sitting'
-    | 'cooking'
-    | 'changing_clothes'
-    | 'workout'
-    | 'wave'
-    | 'kiss'
-  >('idle');
+  // Video Action State — THIS is what drives VirtualAvatarCanvas
+  const [avatarAction, setAvatarAction] = useState<AvatarActionType>('idle');
   const [outfit, setOutfit] = useState<'casual' | 'formal' | 'cozy' | 'sporty'>('casual');
 
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -54,13 +67,17 @@ export function useVirtualCall(persona: VirtualPersona) {
   const audioAnimationRef = useRef<number | null>(null);
   const accumulatedSpeechRef = useRef<string>('');
   const currentAudioElementRef = useRef<HTMLAudioElement | null>(null);
-  
+  const actionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Anti-Acoustic Echo State
   const isSpeakingRef = useRef<boolean>(false);
   const lastCompanionSpeechRef = useRef<string>('');
   const lastCompanionSpeechEndRef = useRef<number>(0);
+  // Track the "explicit" action the AI chose (not speaking)
+  const currentExplicitActionRef = useRef<string | null>(null);
 
-  // Helper to register global streams for foolproof cleanup
+  // ── HELPERS ───────────────────────────────────────────────────────────────────
+
   const registerStream = (stream: MediaStream) => {
     if (typeof window !== 'undefined') {
       window.__ACTIVE_MEDIA_STREAMS__ = window.__ACTIVE_MEDIA_STREAMS__ || [];
@@ -68,74 +85,54 @@ export function useVirtualCall(persona: VirtualPersona) {
     }
   };
 
-  // Helper to kill all global active streams
   const killAllMediaTracks = () => {
     if (typeof window !== 'undefined' && window.__ACTIVE_MEDIA_STREAMS__) {
       window.__ACTIVE_MEDIA_STREAMS__.forEach((stream) => {
-        try {
-          stream.getTracks().forEach((track) => {
-            track.stop();
-            track.enabled = false;
-          });
-        } catch (_) {}
+        try { stream.getTracks().forEach((t) => { t.stop(); t.enabled = false; }); } catch (_) {}
       });
       window.__ACTIVE_MEDIA_STREAMS__ = [];
     }
     if (localStreamRef.current) {
-      try {
-        localStreamRef.current.getTracks().forEach((track) => {
-          track.stop();
-          track.enabled = false;
-        });
-      } catch (_) {}
+      try { localStreamRef.current.getTracks().forEach((t) => { t.stop(); t.enabled = false; }); } catch (_) {}
       localStreamRef.current = null;
     }
   };
 
-  // ── 0. LOAD SESSION MEMORY ──────────────────────────────────────────────────
+  // ── 0. SESSION MEMORY ─────────────────────────────────────────────────────────
+
   useEffect(() => {
     try {
-      const savedHistory = sessionStorage.getItem(`virtual_session_${persona.id}`);
-      if (savedHistory) {
-        const parsed = JSON.parse(savedHistory);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setChatHistory(parsed);
-        }
+      const saved = sessionStorage.getItem(`virtual_session_${persona.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) setChatHistory(parsed);
       }
     } catch (_) {}
   }, [persona.id]);
 
-  // Persist session history on change
   useEffect(() => {
     if (chatHistory.length > 0) {
-      try {
-        sessionStorage.setItem(`virtual_session_${persona.id}`, JSON.stringify(chatHistory.slice(-20)));
-      } catch (_) {}
+      try { sessionStorage.setItem(`virtual_session_${persona.id}`, JSON.stringify(chatHistory.slice(-20))); } catch (_) {}
     }
   }, [chatHistory, persona.id]);
 
-  // ── 1. INITIALIZE LOCAL CAMERA & MIC ───────────────────────────────────────
+  // ── 1. CAMERA & MIC SETUP ────────────────────────────────────────────────────
+
   useEffect(() => {
     let isMounted = true;
 
     async function setupMedia() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (isMounted) {
           registerStream(stream);
           localStreamRef.current = stream;
           setLocalStream(stream);
         } else {
-          stream.getTracks().forEach((t) => {
-            t.stop();
-            t.enabled = false;
-          });
+          stream.getTracks().forEach((t) => { t.stop(); t.enabled = false; });
         }
       } catch (err) {
-        console.warn('Could not access camera/mic, fallback active:', err);
+        console.warn('Could not access camera/mic:', err);
       }
     }
 
@@ -145,74 +142,71 @@ export function useVirtualCall(persona: VirtualPersona) {
       isMounted = false;
       killAllMediaTracks();
       if (currentAudioElementRef.current) {
-        try {
-          currentAudioElementRef.current.pause();
-          currentAudioElementRef.current.src = '';
-        } catch (_) {}
+        try { currentAudioElementRef.current.pause(); currentAudioElementRef.current.src = ''; } catch (_) {}
       }
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
       if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-          recognitionRef.current.abort();
-        } catch (_) {}
+        try { recognitionRef.current.stop(); recognitionRef.current.abort(); } catch (_) {}
         recognitionRef.current = null;
       }
-      if (audioAnimationRef.current) {
-        cancelAnimationFrame(audioAnimationRef.current);
-      }
-      if (speechDebounceTimerRef.current) {
-        clearTimeout(speechDebounceTimerRef.current);
-      }
+      if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
+      if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
+      if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
     };
   }, []);
 
-  // ── 2. CALL TIMER ──────────────────────────────────────────────────────────
+  // ── 2. CALL TIMER ─────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (callStatus === 'connected') {
-      timerRef.current = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
+      timerRef.current = setInterval(() => setCallDuration((p) => p + 1), 1000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [callStatus]);
 
-  // ── 3. SPEECH SYNTHESIS (NEURAL TTS WITH WEBSPEECH FALLBACK) ──────────────
+  // ── 3. SPEAK TEXT (NEURAL TTS + WEBSPEECH FALLBACK) ───────────────────────────
+  //
+  // KEY SYNC LOGIC:
+  //   1. When speakText is called, we set isSpeaking=true
+  //   2. If there's an explicit action (e.g. "standing"), avatarAction stays as that action
+  //   3. If there's NO explicit action, avatarAction is set to "speaking"
+  //   4. When speech ends, avatarAction resets to "idle"
+
   const speakText = useCallback(
-    async (text: string) => {
-      // 1. HARD-PAUSE speech recognition so speaker audio is NEVER picked up as user input
+    async (text: string, explicitAction?: string) => {
       isSpeakingRef.current = true;
       lastCompanionSpeechRef.current = text.toLowerCase();
       setIsSpeaking(true);
       setCurrentCaption(text);
 
+      // Set the video action:
+      // - If there's an explicit action (standing, coffee, kiss etc.), keep it
+      // - Otherwise switch to "speaking" video
+      if (!explicitAction || explicitAction === 'speaking' || explicitAction === 'idle') {
+        setAvatarAction('speaking');
+        currentExplicitActionRef.current = null;
+      } else {
+        // Explicit action already set by sendUserMessage - keep it
+        currentExplicitActionRef.current = explicitAction;
+      }
+
+      // Stop recognition while speaking
       if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) {}
+        try { recognitionRef.current.abort(); } catch (_) {}
       }
 
-      // Stop any existing audio element
+      // Stop any existing audio
       if (currentAudioElementRef.current) {
-        try {
-          currentAudioElementRef.current.pause();
-          currentAudioElementRef.current.src = '';
-        } catch (_) {}
+        try { currentAudioElementRef.current.pause(); currentAudioElementRef.current.src = ''; } catch (_) {}
       }
 
-      // Audio waveform animation during speech
+      // Animate audio waveform
       let frame = 0;
       const animateAudio = () => {
         frame++;
-        const wave = Math.abs(Math.sin(frame * 0.22)) * 0.8 + 0.2;
-        setAudioLevel(wave);
+        setAudioLevel(Math.abs(Math.sin(frame * 0.22)) * 0.8 + 0.2);
         audioAnimationRef.current = requestAnimationFrame(animateAudio);
       };
       audioAnimationRef.current = requestAnimationFrame(animateAudio);
@@ -223,21 +217,30 @@ export function useVirtualCall(persona: VirtualPersona) {
         if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
         lastCompanionSpeechEndRef.current = Date.now();
 
-        // Clear dialogue subtitle after 2.5 seconds
+        // Reset video to idle after speech ends
+        // If there was an explicit action, keep it for 2 more seconds then go idle
+        if (currentExplicitActionRef.current) {
+          setTimeout(() => {
+            setAvatarAction('idle');
+            currentExplicitActionRef.current = null;
+          }, 2000);
+        } else {
+          setAvatarAction('idle');
+        }
+
+        // Clear subtitle after 2.5s
         setTimeout(() => {
-          if (!isSpeakingRef.current) {
-            setCurrentCaption('');
-          }
+          if (!isSpeakingRef.current) setCurrentCaption('');
         }, 2500);
 
-        // Wait 450ms for room echo to decay before resuming speech recognition
+        // Resume listening after echo decay
         setTimeout(() => {
           isSpeakingRef.current = false;
           startListening();
         }, 450);
       };
 
-      // Try Neural TTS API first for human-realistic voice
+      // Try Neural TTS API first
       try {
         const ttsRes = await fetch('/api/virtual/tts', {
           method: 'POST',
@@ -255,40 +258,28 @@ export function useVirtualCall(persona: VirtualPersona) {
             const audio = new Audio(ttsData.audioUrl);
             currentAudioElementRef.current = audio;
             audio.onended = handleSpeechEnd;
-            audio.onerror = () => {
-              // If neural audio stream errors, fallback to browser speech synthesis
-              speakWithWebSpeech(text, handleSpeechEnd);
-            };
+            audio.onerror = () => speakWithWebSpeech(text, handleSpeechEnd);
             await audio.play();
             return;
           }
         }
       } catch (err) {
-        console.warn('Neural TTS fetch error, using WebSpeech fallback:', err);
+        console.warn('Neural TTS error, falling back to WebSpeech:', err);
       }
 
-      // Fallback to WebSpeech API
       speakWithWebSpeech(text, handleSpeechEnd);
     },
     [persona]
   );
 
-  const speakWithWebSpeech = (text: string, onEndCallback: () => void) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      onEndCallback();
-      return;
-    }
+  const speakWithWebSpeech = (text: string, onEnd: () => void) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) { onEnd(); return; }
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.pitch = persona.voiceStyle.pitch;
     utterance.rate = persona.voiceStyle.rate;
-
-    if (persona.id === 'ananya-sharma') {
-      utterance.lang = 'hi-IN';
-    } else {
-      utterance.lang = 'en-US';
-    }
+    utterance.lang = persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US';
 
     const voices = window.speechSynthesis.getVoices();
     if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
@@ -297,47 +288,46 @@ export function useVirtualCall(persona: VirtualPersona) {
           v.name.toLowerCase().includes(pref.toLowerCase())
         )
       );
-      if (found) {
-        utterance.voice = found;
-      } else if (persona.id === 'ananya-sharma') {
-        const indianVoice = voices.find(
-          (v) => v.lang.includes('hi') || v.lang.includes('IN') || v.name.toLowerCase().includes('india')
-        );
-        if (indianVoice) utterance.voice = indianVoice;
+      if (found) utterance.voice = found;
+      else if (persona.id === 'ananya-sharma') {
+        const iv = voices.find((v) => v.lang.includes('hi') || v.lang.includes('IN'));
+        if (iv) utterance.voice = iv;
       }
     }
 
-    utterance.onend = onEndCallback;
-    utterance.onerror = onEndCallback;
+    utterance.onend = onEnd;
+    utterance.onerror = onEnd;
     window.speechSynthesis.speak(utterance);
   };
 
-  // ── 4. MANUAL ACTIONS DOCK ─────────────────────────────────────────────────
-  const triggerAction = useCallback(
-    (
-      newAction:
-        | 'idle'
-        | 'speaking'
-        | 'standing'
-        | 'sitting'
-        | 'cooking'
-        | 'changing_clothes'
-        | 'workout'
-        | 'wave'
-        | 'kiss',
-      duration = 8000
-    ) => {
-      setAvatarAction(newAction);
-      if (newAction !== 'standing' && newAction !== 'sitting' && newAction !== 'idle') {
-        setTimeout(() => {
-          setAvatarAction('idle');
-        }, duration);
-      }
-    },
-    []
-  );
+  // ── 4. TRIGGER ACTION (MANUAL BUTTONS) ────────────────────────────────────────
 
-  // ── 5. SEND MESSAGE TO AI BACKEND (WITH AVAILABLE ACTIONS LIST) ────────────
+  const triggerAction = useCallback((newAction: AvatarActionType, duration = 8000) => {
+    // Clear any existing action timeout
+    if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
+    
+    setAvatarAction(newAction);
+    
+    // Auto-revert to idle after duration (except for persistent states)
+    if (newAction !== 'idle' && newAction !== 'speaking') {
+      actionTimeoutRef.current = setTimeout(() => {
+        // Only revert if we're still on this action (not overridden)
+        setAvatarAction((current) => current === newAction ? 'idle' : current);
+      }, duration);
+    }
+  }, []);
+
+  // ── 5. SEND MESSAGE TO AI (WITH VIDEO FILE ACTIONS) ───────────────────────────
+  //
+  // PIPELINE:
+  //   1. User speaks → text recognized → sendUserMessage(text)
+  //   2. POST to /api/virtual/chat with { message, personaId, conversationHistory }
+  //      (API internally reads persona's videoClips to know available actions)
+  //   3. API returns { reply, action, emotion }
+  //   4. We FIRST set avatarAction to the AI's chosen action video
+  //   5. THEN call speakText(reply, action) which keeps that action during speech
+  //   6. When speech ends, action reverts to idle
+
   const sendUserMessage = useCallback(
     async (messageText: string) => {
       if (!messageText.trim() || isProcessing) return;
@@ -353,17 +343,10 @@ export function useVirtualCall(persona: VirtualPersona) {
       setCurrentCaption(`You: "${cleanedText}"`);
       setIsProcessing(true);
 
-      // Pause speech recognition while AI thinks & responds
+      // Pause recognition while AI thinks
       if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) {}
+        try { recognitionRef.current.abort(); } catch (_) {}
       }
-
-      // Collect available actions from persona
-      const availableActions = Object.keys(persona.videoClips || {}).concat([
-        'idle', 'speaking', 'standing', 'coffee', 'kiss', 'wave', 'workout', 'laugh'
-      ]);
 
       try {
         const res = await fetch('/api/virtual/chat', {
@@ -372,7 +355,6 @@ export function useVirtualCall(persona: VirtualPersona) {
           body: JSON.stringify({
             personaId: persona.id,
             message: cleanedText,
-            availableActions,
             conversationHistory: [...chatHistory, userEntry].slice(-16).map((c) => ({
               role: c.sender === 'user' ? 'user' : 'assistant',
               content: c.text,
@@ -382,19 +364,15 @@ export function useVirtualCall(persona: VirtualPersona) {
 
         const data = await res.json();
         const replyText = data.reply || "I'm so glad we are talking right now, tell me more!";
+        const aiAction = data.action || 'speaking';
 
-        // Trigger AI Decided Action (e.g. standing, coffee, kiss, wave, workout)
-        if (data.action && data.action !== 'idle') {
-          const actionMap: any = {
-            coffee: 'cooking',
-            cooking: 'cooking',
-            kiss: 'kiss',
-            wave: 'wave',
-            workout: 'workout',
-            standing: 'standing',
-            laugh: 'speaking',
-          };
-          triggerAction(actionMap[data.action] || data.action, 8000);
+        console.log(`[VIDEO SYNC] AI action="${aiAction}" for message="${cleanedText}"`);
+
+        // STEP 1: Set the action video IMMEDIATELY (before speech starts)
+        if (aiAction !== 'idle' && aiAction !== 'speaking') {
+          // Clear any previous action timeout
+          if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
+          setAvatarAction(aiAction as AvatarActionType);
         }
 
         const companionEntry: ChatEntry = {
@@ -405,29 +383,28 @@ export function useVirtualCall(persona: VirtualPersona) {
 
         setChatHistory((prev) => [...prev, companionEntry]);
         setIsProcessing(false);
-        speakText(replyText);
+
+        // STEP 2: Start speaking — pass the explicit action so it stays during speech
+        speakText(replyText, aiAction);
       } catch (err) {
         console.error('Failed to get companion reply:', err);
         setIsProcessing(false);
-        speakText("You have such a wonderful way with words. Tell me more about that!");
+        speakText("You have such a wonderful way with words. Tell me more about that!", 'speaking');
       }
     },
-    [chatHistory, isProcessing, persona, speakText, triggerAction]
+    [chatHistory, isProcessing, persona, speakText]
   );
 
-  // ── 6. ROBUST SPEECH RECOGNITION (ANTI-FEEDBACK ECHO FILTER) ──────────────
+  // ── 6. SPEECH RECOGNITION (ANTI-ECHO) ─────────────────────────────────────────
+
   const startListening = useCallback(() => {
     if (typeof window === 'undefined' || isMicMuted || isSpeakingRef.current) return;
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch (_) {}
+      try { recognitionRef.current.abort(); } catch (_) {}
     }
 
     try {
@@ -444,39 +421,33 @@ export function useVirtualCall(persona: VirtualPersona) {
       };
 
       recognition.onresult = (event: any) => {
-        // Discard any audio if companion is currently speaking or just finished (<400ms)
-        if (isSpeakingRef.current || Date.now() - lastCompanionSpeechEndRef.current < 400) {
-          return;
-        }
+        if (isSpeakingRef.current || Date.now() - lastCompanionSpeechEndRef.current < 400) return;
 
         let interimTranscript = '';
         let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
-          }
+          if (event.results[i].isFinal) finalTranscript += transcript + ' ';
+          else interimTranscript += transcript;
         }
 
         const currentHeard = (finalTranscript || interimTranscript).trim();
         if (currentHeard) {
-          // Acoustic echo filter: if the heard text is just a repeat of what the companion said, ignore it!
+          // Echo filter
           const lowerHeard = currentHeard.toLowerCase();
           if (
             lastCompanionSpeechRef.current &&
-            (lastCompanionSpeechRef.current.includes(lowerHeard) || lowerHeard.includes(lastCompanionSpeechRef.current)) &&
+            (lastCompanionSpeechRef.current.includes(lowerHeard) ||
+              lowerHeard.includes(lastCompanionSpeechRef.current)) &&
             lowerHeard.length > 8
           ) {
-            return; // Reject echo
+            return;
           }
 
           accumulatedSpeechRef.current = currentHeard;
           setCurrentCaption(`Listening: "${currentHeard}"`);
 
-          // Debounce: when user pauses for 1.3s after speaking, send the message
           if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
           speechDebounceTimerRef.current = setTimeout(() => {
             const textToSend = accumulatedSpeechRef.current.trim();
@@ -497,12 +468,9 @@ export function useVirtualCall(persona: VirtualPersona) {
 
       recognition.onend = () => {
         setIsListening(false);
-        // Automatically restart listening if call is active and companion is not speaking
         if (!isMicMuted && !isSpeakingRef.current && callStatus !== 'ended') {
           setTimeout(() => {
-            if (!isMicMuted && !isSpeakingRef.current) {
-              startListening();
-            }
+            if (!isMicMuted && !isSpeakingRef.current) startListening();
           }, 300);
         }
       };
@@ -514,7 +482,8 @@ export function useVirtualCall(persona: VirtualPersona) {
     }
   }, [callStatus, isMicMuted, persona.id, sendUserMessage]);
 
-  // ── 7. INITIAL GREETING ON CONNECT ─────────────────────────────────────────
+  // ── 7. INITIAL GREETING ───────────────────────────────────────────────────────
+
   useEffect(() => {
     const greetingTimer = setTimeout(() => {
       setCallStatus('connected');
@@ -525,12 +494,11 @@ export function useVirtualCall(persona: VirtualPersona) {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
         setChatHistory([greetingEntry]);
-        speakText(persona.greeting);
+        speakText(persona.greeting, 'speaking');
       } else {
         startListening();
       }
     }, 1500);
-
     return () => clearTimeout(greetingTimer);
   }, []);
 
@@ -547,15 +515,14 @@ export function useVirtualCall(persona: VirtualPersona) {
     }, 1200);
   }, []);
 
-  // ── 8. CONTROLS (MUTE / VIDEO TOGGLE / HANGUP) ─────────────────────────────
+  // ── 8. CONTROLS ───────────────────────────────────────────────────────────────
+
   const toggleMic = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMicMuted));
     }
     if (!isMicMuted && recognitionRef.current) {
-      try {
-        recognitionRef.current.abort();
-      } catch (_) {}
+      try { recognitionRef.current.abort(); } catch (_) {}
     } else if (isMicMuted) {
       startListening();
     }
@@ -571,41 +538,28 @@ export function useVirtualCall(persona: VirtualPersona) {
 
   const endCall = useCallback(() => {
     if (currentAudioElementRef.current) {
-      try {
-        currentAudioElementRef.current.pause();
-        currentAudioElementRef.current.src = '';
-      } catch (_) {}
+      try { currentAudioElementRef.current.pause(); currentAudioElementRef.current.src = ''; } catch (_) {}
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       window.speechSynthesis.pause();
     }
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-        recognitionRef.current.abort();
-      } catch (_) {}
+      try { recognitionRef.current.stop(); recognitionRef.current.abort(); } catch (_) {}
       recognitionRef.current = null;
     }
     killAllMediaTracks();
     setLocalStream(null);
-
-    if (audioAnimationRef.current) {
-      cancelAnimationFrame(audioAnimationRef.current);
-      audioAnimationRef.current = null;
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (speechDebounceTimerRef.current) {
-      clearTimeout(speechDebounceTimerRef.current);
-    }
+    if (audioAnimationRef.current) { cancelAnimationFrame(audioAnimationRef.current); audioAnimationRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
+    if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
     isSpeakingRef.current = false;
     setIsSpeaking(false);
     setIsListening(false);
     setIsProcessing(false);
     setAudioLevel(0);
+    setAvatarAction('idle');
     setCallStatus('ended');
   }, []);
 
