@@ -1,12 +1,25 @@
-import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import Github from "next-auth/providers/github"
 import type { NextAuthConfig } from "next-auth"
-import { loginSchema } from './lib/schemas/LoginSchema'
-import { getUserByEmail } from './app/actions/userQueries';
-import { compare } from 'bcryptjs';
 
 export default {
+    callbacks: {
+        async jwt({ user, token }) {
+            if (user) {
+                token.profileComplete = (user as any).profileComplete;
+                token.role = (user as any).role;
+            }
+            return token;
+        },
+        async session({ session, token }) {
+            if (token.sub && session.user) {
+                session.user.id = token.sub;
+                session.user.profileComplete = token.profileComplete as boolean;
+                session.user.role = token.role as any;
+            }
+            return session;
+        }
+    },
     providers: [
         Google({
             clientId: process.env.GOOGLE_CLIENT_ID,
@@ -16,23 +29,5 @@ export default {
             clientId: process.env.GITHUB_CLIENT_ID,
             clientSecret: process.env.GITHUB_CLIENT_SECRET
         }),
-        Credentials({
-            name: 'credentials',
-            async authorize(creds) {
-                const validated = loginSchema.safeParse(creds);
-
-                if (validated.success) {
-                    const { email, password } = validated.data;
-
-                    const user = await getUserByEmail(email);
-
-                    if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) return null;
-
-                    return user;
-                }
-
-                return null;
-            }
-        })
     ],
 } satisfies NextAuthConfig
