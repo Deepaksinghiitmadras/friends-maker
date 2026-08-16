@@ -27,13 +27,9 @@ export async function generateToken(email: string, type: TokenType) {
     const token = getToken();
     const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); //  Expires in 24 hours
 
-    const existingToken = await getTokenByEmail(email);
-
-    if (existingToken) {
-        await prisma.token.delete({
-            where: { id: existingToken.id }
-        })
-    }
+    await prisma.token.deleteMany({
+        where: { email, type }
+    });
 
     return prisma.token.create({
         data: {

@@ -91,15 +91,22 @@ export async function getMemberPhotosByUserId(userId: string) {
 }
 
 export async function updateLastActive() {
-    const userId = await getAuthUserId();
-
     try {
+        const userId = await getAuthUserId();
+        if (!userId) return null;
+
+        const member = await prisma.member.findUnique({
+            where: { userId }
+        });
+
+        if (!member) return null;
+
         return prisma.member.update({
             where: { userId },
             data: { updated: new Date() }
-        })
+        });
     } catch (error) {
-        console.log(error);
-        throw error;
+        console.log('updateLastActive error:', error);
+        return null;
     }
 }
