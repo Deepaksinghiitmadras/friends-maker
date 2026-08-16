@@ -10,6 +10,12 @@ export interface ChatEntry {
   sentiment?: 'flirty' | 'happy' | 'thoughtful' | 'curious' | 'neutral';
 }
 
+declare global {
+  interface Window {
+    __ACTIVE_MEDIA_STREAMS__?: MediaStream[];
+  }
+}
+
 export function useVirtualCall(persona: VirtualPersona) {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
   const [callDuration, setCallDuration] = useState<number>(0);
@@ -47,6 +53,43 @@ export function useVirtualCall(persona: VirtualPersona) {
   const speechDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioAnimationRef = useRef<number | null>(null);
   const accumulatedSpeechRef = useRef<string>('');
+  
+  // Anti-Acoustic Echo State
+  const isSpeakingRef = useRef<boolean>(false);
+  const lastCompanionSpeechRef = useRef<string>('');
+  const lastCompanionSpeechEndRef = useRef<number>(0);
+
+  // Helper to register global streams for foolproof cleanup
+  const registerStream = (stream: MediaStream) => {
+    if (typeof window !== 'undefined') {
+      window.__ACTIVE_MEDIA_STREAMS__ = window.__ACTIVE_MEDIA_STREAMS__ || [];
+      window.__ACTIVE_MEDIA_STREAMS__.push(stream);
+    }
+  };
+
+  // Helper to kill all global active streams
+  const killAllMediaTracks = () => {
+    if (typeof window !== 'undefined' && window.__ACTIVE_MEDIA_STREAMS__) {
+      window.__ACTIVE_MEDIA_STREAMS__.forEach((stream) => {
+        try {
+          stream.getTracks().forEach((track) => {
+            track.stop();
+            track.enabled = false;
+          });
+        } catch (_) {}
+      });
+      window.__ACTIVE_MEDIA_STREAMS__ = [];
+    }
+    if (localStreamRef.current) {
+      try {
+        localStreamRef.current.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+      } catch (_) {}
+      localStreamRef.current = null;
+    }
+  };
 
   // ── 0. LOAD SESSION MEMORY ──────────────────────────────────────────────────
   useEffect(() => {
@@ -72,14 +115,25 @@ export function useVirtualCall(persona: VirtualPersona) {
 
   // ── 1. INITIALIZE LOCAL CAMERA & MIC ───────────────────────────────────────
   useEffect(() => {
+    let isMounted = true;
+
     async function setupMedia() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
         });
-        localStreamRef.current = stream;
-        setLocalStream(stream);
+        if (isMounted) {
+          registerStream(stream);
+          localStreamRef.current = stream;
+          setLocalStream(stream);
+        } else {
+          // If unmounted before stream resolved, immediately stop tracks
+          stream.getTracks().forEach((t) => {
+            t.stop();
+            t.enabled = false;
+          });
+        }
       } catch (err) {
         console.warn('Could not access camera/mic, fallback active:', err);
       }
@@ -88,14 +142,8 @@ export function useVirtualCall(persona: VirtualPersona) {
     setupMedia();
 
     return () => {
-      // Synchronously stop all media tracks on unmount
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          track.stop();
-          track.enabled = false;
-        });
-        localStreamRef.current = null;
-      }
+      isMounted = false;
+      killAllMediaTracks();
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -104,6 +152,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           recognitionRef.current.stop();
           recognitionRef.current.abort();
         } catch (_) {}
+        recognitionRef.current = null;
       }
       if (audioAnimationRef.current) {
         cancelAnimationFrame(audioAnimationRef.current);
@@ -129,30 +178,55 @@ export function useVirtualCall(persona: VirtualPersona) {
     };
   }, [callStatus]);
 
-  // ── 3. SPEECH SYNTHESIS (AVATAR TALKING) ────────────────────────────────────
+  // ── 3. SPEECH SYNTHESIS (AVATAR TALKING WITH ANTI-ECHO) ───────────────────
   const speakText = useCallback(
     (text: string) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
-      window.speechSynthesis.cancel();
+      // 1. HARD-PAUSE speech recognition so speaker audio is NEVER picked up as user input
+      isSpeakingRef.current = true;
+      lastCompanionSpeechRef.current = text.toLowerCase();
       setIsSpeaking(true);
       setCurrentCaption(text);
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (_) {}
+      }
+
+      window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.pitch = persona.voiceStyle.pitch;
       utterance.rate = persona.voiceStyle.rate;
 
+      // Select Language (Hindi for Ananya, English for others)
+      if (persona.id === 'ananya-sharma') {
+        utterance.lang = 'hi-IN';
+      } else {
+        utterance.lang = 'en-US';
+      }
+
       const voices = window.speechSynthesis.getVoices();
-      if (persona.voiceStyle.preferredVoiceNames) {
+      if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
         const found = voices.find((v) =>
           persona.voiceStyle.preferredVoiceNames?.some((pref) =>
             v.name.toLowerCase().includes(pref.toLowerCase())
           )
         );
-        if (found) utterance.voice = found;
+        if (found) {
+          utterance.voice = found;
+        } else if (persona.id === 'ananya-sharma') {
+          // Fallback to any Indian voice available
+          const indianVoice = voices.find(
+            (v) => v.lang.includes('hi') || v.lang.includes('IN') || v.name.toLowerCase().includes('india')
+          );
+          if (indianVoice) utterance.voice = indianVoice;
+        }
       }
 
-      // Simulate audio waveform animation during speech
+      // Audio waveform animation during speech
       let frame = 0;
       const animateAudio = () => {
         frame++;
@@ -162,19 +236,21 @@ export function useVirtualCall(persona: VirtualPersona) {
       };
       audioAnimationRef.current = requestAnimationFrame(animateAudio);
 
-      utterance.onend = () => {
+      const handleSpeechEnd = () => {
         setIsSpeaking(false);
         setAudioLevel(0);
         if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
-        startListening();
+        lastCompanionSpeechEndRef.current = Date.now();
+
+        // Wait 450ms for room echo to decay before resuming speech recognition
+        setTimeout(() => {
+          isSpeakingRef.current = false;
+          startListening();
+        }, 450);
       };
 
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        setAudioLevel(0);
-        if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
-        startListening();
-      };
+      utterance.onend = handleSpeechEnd;
+      utterance.onerror = handleSpeechEnd;
 
       window.speechSynthesis.speak(utterance);
     },
@@ -187,20 +263,20 @@ export function useVirtualCall(persona: VirtualPersona) {
     if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink') || lower.includes('cook')) {
       setAvatarAction('cooking');
       setTimeout(() => setAvatarAction('idle'), 9000);
-    } else if (lower.includes('kiss') || lower.includes('love you') || lower.includes('mwah')) {
+    } else if (lower.includes('kiss') || lower.includes('love you') || lower.includes('mwah') || lower.includes('pyaar')) {
       setAvatarAction('kiss');
       setTimeout(() => setAvatarAction('idle'), 6000);
-    } else if (lower.includes('wave') || lower.includes('hello') || lower.includes('hey')) {
+    } else if (lower.includes('wave') || lower.includes('hello') || lower.includes('hey') || lower.includes('namaste')) {
       setAvatarAction('wave');
       setTimeout(() => setAvatarAction('idle'), 4500);
-    } else if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('fit')) {
+    } else if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('gym')) {
       setAvatarAction('workout');
       setTimeout(() => setAvatarAction('idle'), 8000);
     } else if (lower.includes('stand') && !lower.includes('sit')) {
       setAvatarAction('standing');
     } else if (lower.includes('sit')) {
       setAvatarAction('sitting');
-    } else if (lower.includes('outfit') || lower.includes('dress') || lower.includes('wear') || lower.includes('clothes')) {
+    } else if (lower.includes('outfit') || lower.includes('dress') || lower.includes('wear') || lower.includes('saree') || lower.includes('clothes')) {
       setAvatarAction('changing_clothes');
       setTimeout(() => {
         setOutfit((prev) => (prev === 'casual' ? 'formal' : prev === 'formal' ? 'cozy' : 'sporty'));
@@ -231,7 +307,7 @@ export function useVirtualCall(persona: VirtualPersona) {
       // Pause speech recognition while AI thinks & responds
       if (recognitionRef.current) {
         try {
-          recognitionRef.current.stop();
+          recognitionRef.current.abort();
         } catch (_) {}
       }
 
@@ -273,9 +349,9 @@ export function useVirtualCall(persona: VirtualPersona) {
     [chatHistory, isProcessing, parseActionFromSpeech, persona.id, speakText]
   );
 
-  // ── 6. ROBUST SPEECH RECOGNITION (USER TALKING) ───────────────────────────
+  // ── 6. ROBUST SPEECH RECOGNITION (ANTI-FEEDBACK ECHO FILTER) ──────────────
   const startListening = useCallback(() => {
-    if (typeof window === 'undefined' || isMicMuted || isSpeaking) return;
+    if (typeof window === 'undefined' || isMicMuted || isSpeakingRef.current) return;
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -284,7 +360,7 @@ export function useVirtualCall(persona: VirtualPersona) {
 
     if (recognitionRef.current) {
       try {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       } catch (_) {}
     }
 
@@ -292,14 +368,21 @@ export function useVirtualCall(persona: VirtualPersona) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      recognition.lang = persona.id === 'ananya-sharma' ? 'en-IN' : 'en-US';
 
       recognition.onstart = () => {
-        setIsListening(true);
-        accumulatedSpeechRef.current = '';
+        if (!isSpeakingRef.current) {
+          setIsListening(true);
+          accumulatedSpeechRef.current = '';
+        }
       };
 
       recognition.onresult = (event: any) => {
+        // Discard any audio if companion is currently speaking or just finished (<400ms)
+        if (isSpeakingRef.current || Date.now() - lastCompanionSpeechEndRef.current < 400) {
+          return;
+        }
+
         let interimTranscript = '';
         let finalTranscript = '';
 
@@ -314,6 +397,16 @@ export function useVirtualCall(persona: VirtualPersona) {
 
         const currentHeard = (finalTranscript || interimTranscript).trim();
         if (currentHeard) {
+          // Acoustic echo filter: if the heard text is just a repeat of what the companion said, ignore it!
+          const lowerHeard = currentHeard.toLowerCase();
+          if (
+            lastCompanionSpeechRef.current &&
+            (lastCompanionSpeechRef.current.includes(lowerHeard) || lowerHeard.includes(lastCompanionSpeechRef.current)) &&
+            lowerHeard.length > 8
+          ) {
+            return; // Reject echo
+          }
+
           accumulatedSpeechRef.current = currentHeard;
           setCurrentCaption(`Listening: "${currentHeard}"`);
 
@@ -321,7 +414,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
           speechDebounceTimerRef.current = setTimeout(() => {
             const textToSend = accumulatedSpeechRef.current.trim();
-            if (textToSend && textToSend.length > 1) {
+            if (textToSend && textToSend.length > 1 && !isSpeakingRef.current) {
               accumulatedSpeechRef.current = '';
               sendUserMessage(textToSend);
             }
@@ -338,10 +431,10 @@ export function useVirtualCall(persona: VirtualPersona) {
 
       recognition.onend = () => {
         setIsListening(false);
-        // If mic is still unmuted and companion is not speaking, automatically restart listening
-        if (!isMicMuted && !isSpeaking && callStatus !== 'ended') {
+        // Automatically restart listening if call is active and companion is not speaking
+        if (!isMicMuted && !isSpeakingRef.current && callStatus !== 'ended') {
           setTimeout(() => {
-            if (!isMicMuted && !isSpeaking) {
+            if (!isMicMuted && !isSpeakingRef.current) {
               startListening();
             }
           }, 300);
@@ -353,13 +446,12 @@ export function useVirtualCall(persona: VirtualPersona) {
     } catch (err) {
       console.warn('Failed to start speech recognition:', err);
     }
-  }, [callStatus, isMicMuted, isSpeaking, sendUserMessage]);
+  }, [callStatus, isMicMuted, persona.id, sendUserMessage]);
 
   // ── 7. INITIAL GREETING ON CONNECT ─────────────────────────────────────────
   useEffect(() => {
     const greetingTimer = setTimeout(() => {
       setCallStatus('connected');
-      // If no history in this session yet, speak greeting
       if (chatHistory.length === 0) {
         const greetingEntry: ChatEntry = {
           sender: 'persona',
@@ -421,7 +513,7 @@ export function useVirtualCall(persona: VirtualPersona) {
     }
     if (!isMicMuted && recognitionRef.current) {
       try {
-        recognitionRef.current.stop();
+        recognitionRef.current.abort();
       } catch (_) {}
     } else if (isMicMuted) {
       startListening();
@@ -451,16 +543,10 @@ export function useVirtualCall(persona: VirtualPersona) {
       } catch (_) {}
       recognitionRef.current = null;
     }
-    // 3. Immediately stop and disable all local camera and microphone tracks
-    const streamToStop = localStreamRef.current || localStream;
-    if (streamToStop) {
-      streamToStop.getTracks().forEach((t) => {
-        t.stop();
-        t.enabled = false;
-      });
-      localStreamRef.current = null;
-      setLocalStream(null);
-    }
+    // 3. HARD KILL all local camera and microphone tracks across window
+    killAllMediaTracks();
+    setLocalStream(null);
+
     // 4. Cancel any audio animations & timers
     if (audioAnimationRef.current) {
       cancelAnimationFrame(audioAnimationRef.current);
@@ -473,12 +559,13 @@ export function useVirtualCall(persona: VirtualPersona) {
     if (speechDebounceTimerRef.current) {
       clearTimeout(speechDebounceTimerRef.current);
     }
+    isSpeakingRef.current = false;
     setIsSpeaking(false);
     setIsListening(false);
     setIsProcessing(false);
     setAudioLevel(0);
     setCallStatus('ended');
-  }, [localStream]);
+  }, []);
 
   return {
     callStatus,

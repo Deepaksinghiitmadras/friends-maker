@@ -112,10 +112,10 @@ export default function VirtualVideoCallPage() {
     setTypedMessage('');
   };
 
-  const handleExitCall = (e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleExitCall = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
     endCall();
-    router.push('/virtual');
+    window.location.href = '/virtual';
   };
 
   return (
@@ -448,9 +448,8 @@ export default function VirtualVideoCallPage() {
               Call Again
             </Button>
             <Button
-              as={Link}
-              href="/virtual"
               color="primary"
+              onPress={() => handleExitCall()}
               startContent={<FaUserFriends className="text-xs" />}
             >
               Explore More Companions
