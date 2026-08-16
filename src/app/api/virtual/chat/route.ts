@@ -15,10 +15,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Persona not found' }, { status: 404 });
     }
 
-    // 1. If OpenAI API Key or Gemini API Key is provided, use live LLM
+    // 1. Check for Groq, OpenAI, or Gemini API keys
+    const groqKey = process.env.GROQ_API_KEY;
     const openAiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
+    // A. Priority 1: Groq (Ultra-fast ~100-200ms latency with Llama 3.3 70B)
+    if (groqKey) {
+      try {
+        const messages: ChatMessage[] = [
+          { role: 'system', content: persona.systemPrompt },
+          ...(conversationHistory || []).slice(-8),
+          { role: 'user', content: message },
+        ];
+
+        const modelToUse = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: modelToUse,
+            messages,
+            temperature: 0.85,
+            max_tokens: 150,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const reply = data.choices?.[0]?.message?.content?.trim();
+          if (reply) {
+            return NextResponse.json({ reply, source: 'groq', model: modelToUse });
+          }
+        }
+      } catch (err) {
+        console.error('Groq fetch error, trying fallback:', err);
+      }
+    }
+
+    // B. Priority 2: OpenAI
     if (openAiKey) {
       try {
         const messages: ChatMessage[] = [
