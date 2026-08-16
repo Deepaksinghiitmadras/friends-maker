@@ -12,6 +12,7 @@ import { auth } from "@/auth";
 import UserMenu from "./UserMenu";
 import { getUserInfoForNav } from "@/app/actions/userActions";
 import FiltersWrapper from "./FiltersWrapper";
+import ModeToggle from "./ModeToggle";
 
 export default async function TopNavGlass() {
   const session = await auth();
@@ -73,7 +74,8 @@ export default async function TopNavGlass() {
             </span>
           </div>
         </NavbarBrand>
-        <NavbarContent justify="center" className="gap-8">
+        <NavbarContent justify="center" className="gap-6">
+          <ModeToggle />
           {session &&
             links.map((item) => (
               <NavLink

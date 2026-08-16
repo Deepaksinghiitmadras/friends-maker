@@ -7,7 +7,7 @@ export default auth((req) => {
     const { nextUrl } = req;
     const isLoggedIn = !!req.auth;
 
-    const isPublic = publicRoutes.includes(nextUrl.pathname);
+    const isPublic = publicRoutes.includes(nextUrl.pathname) || nextUrl.pathname.startsWith('/virtual');
     const isAuthRoute = authRoutes.includes(nextUrl.pathname);
     const isProfileComplete = req.auth?.user.profileComplete;
     const isAdmin = req.auth?.user.role === Role.ADMIN;

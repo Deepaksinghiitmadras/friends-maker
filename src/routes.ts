@@ -1,5 +1,6 @@
 export const publicRoutes = [
-    '/'
+    '/',
+    '/virtual'
 ];
 
 export const authRoutes = [

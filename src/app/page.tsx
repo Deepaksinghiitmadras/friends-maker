@@ -51,28 +51,44 @@ export default async function Home() {
               </span>
             </h1>
 
-            <div className="flex flex-col items-center gap-8 mt-12">
+            <div className="flex flex-col items-center gap-4 mt-8">
               {session ? (
-                <Button
-                  as={Link}
-                  href="/members"
-                  className="bg-gradient-to-r from-pink-500 to-red-500 text-white text-xl px-12 py-8 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl"
-                >
-                  Continue to Matches
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Button
+                    as={Link}
+                    href="/members"
+                    className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-lg px-8 py-6 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl font-bold"
+                  >
+                    👥 Real Matches
+                  </Button>
+                  <Button
+                    as={Link}
+                    href="/virtual"
+                    className="bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 text-white text-lg px-8 py-6 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl font-bold"
+                  >
+                    ✨ AI Virtual Companions (Video Call)
+                  </Button>
+                </div>
               ) : (
                 <div className="flex flex-col sm:flex-row gap-4">
                   <Button
                     as={Link}
+                    href="/virtual"
+                    className="bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 text-white text-lg px-8 py-6 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl font-bold"
+                  >
+                    ✨ AI Virtual Video Call
+                  </Button>
+                  <Button
+                    as={Link}
                     href="/register"
-                    className="bg-gradient-to-r from-pink-500 to-red-500 text-white text-xl px-12 py-8 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl"
+                    className="bg-gradient-to-r from-pink-500 to-rose-500 text-white text-lg px-8 py-6 rounded-full hover:opacity-90 transform hover:scale-105 transition-all shadow-xl hover:shadow-2xl font-bold"
                   >
                     Start Meeting Singles
                   </Button>
                   <Button
                     as={Link}
                     href="/login"
-                    className="bg-white text-pink-500 border-2 border-pink-500 text-xl px-12 py-8 rounded-full hover:bg-pink-50 transform hover:scale-105 transition-all shadow-lg hover:shadow-xl"
+                    className="bg-white text-pink-500 border-2 border-pink-500 text-lg px-8 py-6 rounded-full hover:bg-pink-50 transform hover:scale-105 transition-all shadow-lg hover:shadow-xl font-semibold"
                   >
                     Login
                   </Button>
