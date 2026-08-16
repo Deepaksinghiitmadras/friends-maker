@@ -223,6 +223,13 @@ export function useVirtualCall(persona: VirtualPersona) {
         if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
         lastCompanionSpeechEndRef.current = Date.now();
 
+        // Clear dialogue subtitle after 2.5 seconds
+        setTimeout(() => {
+          if (!isSpeakingRef.current) {
+            setCurrentCaption('');
+          }
+        }, 2500);
+
         // Wait 450ms for room echo to decay before resuming speech recognition
         setTimeout(() => {
           isSpeakingRef.current = false;

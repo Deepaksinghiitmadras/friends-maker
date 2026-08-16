@@ -106,7 +106,7 @@ export default function VirtualAvatarCanvas({
               />
             )}
 
-            {/* 3. Action / Talking Video Overlay Layer (Crossfades seamlessly when active) */}
+            {/* 3. Action / Talking Video Overlay Layer (Instant seamless overlay when active) */}
             {actionVideoSrc && (
               <video
                 key={actionVideoSrc}
@@ -116,11 +116,14 @@ export default function VirtualAvatarCanvas({
                 loop
                 muted
                 playsInline
-                onLoadedData={() => setActionVideoLoaded(true)}
-                onPlay={() => setActionVideoLoaded(true)}
+                onCanPlay={(e) => {
+                  e.currentTarget.play().catch(() => {});
+                  setActionVideoLoaded(true);
+                }}
+                onPlaying={() => setActionVideoLoaded(true)}
                 onError={() => setActionVideoLoaded(false)}
                 className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-300 ${
-                  actionVideoLoaded ? 'opacity-100' : 'opacity-0'
+                  actionVideoLoaded ? 'opacity-100' : 'opacity-90'
                 }`}
               />
             )}
