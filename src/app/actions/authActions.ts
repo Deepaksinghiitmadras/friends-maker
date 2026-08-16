@@ -93,9 +93,9 @@ export async function registerUser(data: RegisterSchema): Promise<ActionResult<U
         await sendVerificationEmail(verificationToken.email, verificationToken.token)
 
         return { status: 'success', data: user }
-    } catch (error) {
-        console.log(error);
-        return { status: 'error', error: 'Something went wrong' }
+    } catch (error: any) {
+        console.log('Registration error:', error);
+        return { status: 'error', error: error?.message || 'Something went wrong during registration' }
     }
 
 }
