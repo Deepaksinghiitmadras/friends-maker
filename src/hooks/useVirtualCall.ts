@@ -40,6 +40,7 @@ export function useVirtualCall(persona: VirtualPersona) {
   >('idle');
   const [outfit, setOutfit] = useState<'casual' | 'formal' | 'cozy' | 'sporty'>('casual');
 
+  const localStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -47,15 +48,13 @@ export function useVirtualCall(persona: VirtualPersona) {
 
   // ── 1. INITIALIZE LOCAL CAMERA & MIC ───────────────────────────────────────
   useEffect(() => {
-    let activeStream: MediaStream | null = null;
-
     async function setupMedia() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: true,
         });
-        activeStream = stream;
+        localStreamRef.current = stream;
         setLocalStream(stream);
       } catch (err) {
         console.warn('Could not access camera/mic, fallback active:', err);
@@ -65,8 +64,24 @@ export function useVirtualCall(persona: VirtualPersona) {
     setupMedia();
 
     return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach((track) => track.stop());
+      // Synchronously stop all media tracks on unmount
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          track.stop();
+          track.enabled = false;
+        });
+        localStreamRef.current = null;
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (_) {}
+      }
+      if (audioAnimationRef.current) {
+        cancelAnimationFrame(audioAnimationRef.current);
       }
     };
   }, []);
@@ -355,24 +370,43 @@ export function useVirtualCall(persona: VirtualPersona) {
   }, [isVideoOff, localStream]);
 
   const endCall = useCallback(() => {
+    // 1. Immediately cancel all speech synthesis voice
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+      window.speechSynthesis.pause();
+      window.speechSynthesis.cancel();
     }
+    // 2. Stop speech recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
+        recognitionRef.current.abort();
       } catch (_) {}
+      recognitionRef.current = null;
     }
-    if (localStream) {
-      localStream.getTracks().forEach((t) => {
+    // 3. Immediately stop and disable all local camera and microphone tracks
+    const streamToStop = localStreamRef.current || localStream;
+    if (streamToStop) {
+      streamToStop.getTracks().forEach((t) => {
         t.stop();
         t.enabled = false;
       });
+      localStreamRef.current = null;
       setLocalStream(null);
+    }
+    // 4. Cancel any audio animations
+    if (audioAnimationRef.current) {
+      cancelAnimationFrame(audioAnimationRef.current);
+      audioAnimationRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
     setIsSpeaking(false);
     setIsListening(false);
     setIsProcessing(false);
+    setAudioLevel(0);
     setCallStatus('ended');
   }, [localStream]);
 
