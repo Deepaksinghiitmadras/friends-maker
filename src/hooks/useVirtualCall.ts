@@ -12,7 +12,7 @@ export interface ChatEntry {
 export function useVirtualCall(persona: VirtualPersona) {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
   const [callDuration, setCallDuration] = useState<number>(0);
-  
+
   // Media State
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isVideoOff, setIsVideoOff] = useState<boolean>(false);
@@ -26,8 +26,21 @@ export function useVirtualCall(persona: VirtualPersona) {
   const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
   const [audioLevel, setAudioLevel] = useState<number>(0);
 
+  // Activity & Outfit State
+  const [avatarAction, setAvatarAction] = useState<
+    | 'idle'
+    | 'speaking'
+    | 'standing'
+    | 'sitting'
+    | 'cooking'
+    | 'changing_clothes'
+    | 'workout'
+    | 'wave'
+    | 'kiss'
+  >('idle');
+  const [outfit, setOutfit] = useState<'casual' | 'formal' | 'cozy' | 'sporty'>('casual');
+
   const recognitionRef = useRef<any>(null);
-  const synthRef = useRef<SpeechSynthesis | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioAnimationRef = useRef<number | null>(null);
@@ -45,7 +58,7 @@ export function useVirtualCall(persona: VirtualPersona) {
         activeStream = stream;
         setLocalStream(stream);
       } catch (err) {
-        console.warn('Could not access camera/mic, falling back to simulated stream:', err);
+        console.warn('Could not access camera/mic, fallback active:', err);
       }
     }
 
@@ -110,7 +123,6 @@ export function useVirtualCall(persona: VirtualPersona) {
         setIsSpeaking(false);
         setAudioLevel(0);
         if (audioAnimationRef.current) cancelAnimationFrame(audioAnimationRef.current);
-        // Resume listening after companion finishes speaking
         startListening();
       };
 
@@ -141,6 +153,32 @@ export function useVirtualCall(persona: VirtualPersona) {
       setChatHistory((prev) => [...prev, userEntry]);
       setCurrentCaption(`You: "${messageText.trim()}"`);
       setIsProcessing(true);
+
+      // Natural speech action intent parsing
+      const lower = messageText.toLowerCase();
+      if (lower.includes('stand') && !lower.includes('sit')) {
+        setAvatarAction('standing');
+      } else if (lower.includes('sit')) {
+        setAvatarAction('sitting');
+      } else if (lower.includes('coffee') || lower.includes('cook') || lower.includes('food')) {
+        setAvatarAction('cooking');
+        setTimeout(() => setAvatarAction('idle'), 8000);
+      } else if (lower.includes('outfit') || lower.includes('clothes') || lower.includes('dress')) {
+        setAvatarAction('changing_clothes');
+        setTimeout(() => {
+          setOutfit((prev) => (prev === 'casual' ? 'formal' : prev === 'formal' ? 'cozy' : 'sporty'));
+          setAvatarAction('idle');
+        }, 1200);
+      } else if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch')) {
+        setAvatarAction('workout');
+        setTimeout(() => setAvatarAction('idle'), 7000);
+      } else if (lower.includes('wave') || lower.includes('hello') || lower.includes('hi')) {
+        setAvatarAction('wave');
+        setTimeout(() => setAvatarAction('idle'), 4000);
+      } else if (lower.includes('kiss') || lower.includes('love')) {
+        setAvatarAction('kiss');
+        setTimeout(() => setAvatarAction('idle'), 5000);
+      }
 
       // Stop speech recognition while processing
       if (recognitionRef.current) {
@@ -192,7 +230,6 @@ export function useVirtualCall(persona: VirtualPersona) {
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.warn('Web Speech Recognition not supported in this browser.');
       return;
     }
 
@@ -245,7 +282,6 @@ export function useVirtualCall(persona: VirtualPersona) {
   useEffect(() => {
     const timer = setTimeout(() => {
       setCallStatus('connected');
-      // Companion speaks greeting upon connecting
       const initialEntry: ChatEntry = {
         sender: 'persona',
         text: persona.greeting,
@@ -258,27 +294,67 @@ export function useVirtualCall(persona: VirtualPersona) {
     return () => clearTimeout(timer);
   }, [persona.greeting, speakText]);
 
-  // ── 7. CONTROLS (MUTE / VIDEO TOGGLE / HANGUP) ─────────────────────────────
-  const toggleMic = () => {
+  // ── 7. ACTIVITY ACTIONS & OUTFIT CONTROLS ─────────────────────────────────
+  const triggerAction = useCallback(
+    (
+      newAction:
+        | 'idle'
+        | 'speaking'
+        | 'standing'
+        | 'sitting'
+        | 'cooking'
+        | 'changing_clothes'
+        | 'workout'
+        | 'wave'
+        | 'kiss',
+      duration = 6000
+    ) => {
+      setAvatarAction(newAction);
+      if (newAction !== 'standing' && newAction !== 'sitting' && newAction !== 'idle') {
+        setTimeout(() => {
+          setAvatarAction('idle');
+        }, duration);
+      }
+    },
+    []
+  );
+
+  const cycleOutfit = useCallback(() => {
+    setAvatarAction('changing_clothes');
+    setTimeout(() => {
+      setOutfit((prev) => {
+        if (prev === 'casual') return 'formal';
+        if (prev === 'formal') return 'cozy';
+        if (prev === 'cozy') return 'sporty';
+        return 'casual';
+      });
+      setAvatarAction('idle');
+    }, 1200);
+  }, []);
+
+  // ── 8. CONTROLS (MUTE / VIDEO TOGGLE / HANGUP) ─────────────────────────────
+  const toggleMic = useCallback(() => {
     if (localStream) {
       localStream.getAudioTracks().forEach((t) => (t.enabled = isMicMuted));
     }
     if (!isMicMuted && recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (_) {}
     } else if (isMicMuted) {
       startListening();
     }
     setIsMicMuted((prev) => !prev);
-  };
+  }, [isMicMuted, localStream, startListening]);
 
-  const toggleVideo = () => {
+  const toggleVideo = useCallback(() => {
     if (localStream) {
       localStream.getVideoTracks().forEach((t) => (t.enabled = isVideoOff));
     }
     setIsVideoOff((prev) => !prev);
-  };
+  }, [isVideoOff, localStream]);
 
-  const endCall = () => {
+  const endCall = useCallback(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -288,10 +364,17 @@ export function useVirtualCall(persona: VirtualPersona) {
       } catch (_) {}
     }
     if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
+      localStream.getTracks().forEach((t) => {
+        t.stop();
+        t.enabled = false;
+      });
+      setLocalStream(null);
     }
+    setIsSpeaking(false);
+    setIsListening(false);
+    setIsProcessing(false);
     setCallStatus('ended');
-  };
+  }, [localStream]);
 
   return {
     callStatus,
@@ -305,6 +388,10 @@ export function useVirtualCall(persona: VirtualPersona) {
     currentCaption,
     chatHistory,
     localStream,
+    avatarAction,
+    outfit,
+    triggerAction,
+    cycleOutfit,
     toggleMic,
     toggleVideo,
     endCall,

@@ -46,6 +46,10 @@ export default function VirtualVideoCallPage() {
     currentCaption,
     chatHistory,
     localStream,
+    avatarAction,
+    outfit,
+    triggerAction,
+    cycleOutfit,
     toggleMic,
     toggleVideo,
     endCall,
@@ -108,23 +112,24 @@ export default function VirtualVideoCallPage() {
     setTypedMessage('');
   };
 
+  const handleExitCall = (e: React.MouseEvent) => {
+    e.preventDefault();
+    endCall();
+    router.push('/virtual');
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black text-white flex flex-col overflow-hidden select-none">
       {/* ── TOP CALL HEADER ────────────────────────────────────────────────── */}
       <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-3">
-          <Link
-            href="/virtual"
-            onClick={(e) => {
-              e.preventDefault();
-              endCall();
-              router.push('/virtual');
-            }}
-            className="flex items-center gap-2 text-sm text-gray-300 hover:text-white bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md transition-colors"
+          <button
+            onClick={handleExitCall}
+            className="flex items-center gap-2 text-sm text-gray-300 hover:text-white bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md transition-colors cursor-pointer"
           >
             <FaChevronLeft className="text-xs" />
             <span className="hidden sm:inline">Exit Call</span>
-          </Link>
+          </button>
 
           <div className="flex items-center gap-2 text-xs font-semibold bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
             <FaLock className="text-emerald-400 text-xs" />
@@ -149,6 +154,8 @@ export default function VirtualVideoCallPage() {
             isListening={isListening}
             isProcessing={isProcessing}
             audioLevel={audioLevel}
+            action={avatarAction}
+            outfit={outfit}
           />
 
           {/* User Floating Video (Picture-in-Picture) */}
@@ -195,7 +202,7 @@ export default function VirtualVideoCallPage() {
             </AnimatePresence>
           </div>
 
-          {/* Suggested Icebreaker Pills */}
+          {/* Suggested Icebreaker Questions */}
           <div className="absolute bottom-3 left-4 right-4 z-20 flex items-center justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
             {persona.sampleQuestions.map((q, idx) => (
               <button
@@ -234,9 +241,9 @@ export default function VirtualVideoCallPage() {
               </div>
 
               <div ref={chatScrollRef} className="flex-grow p-4 overflow-y-auto space-y-3">
-                {chatHistory.map((msg, i) => (
+                {chatHistory.map((msg, idx) => (
                   <div
-                    key={i}
+                    key={idx}
                     className={`flex flex-col ${
                       msg.sender === 'user' ? 'items-end' : 'items-start'
                     }`}
@@ -276,6 +283,71 @@ export default function VirtualVideoCallPage() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* ── INTERACTIVE REAL-LIFE ACTIVITY DOCK ────────────────────────────── */}
+      <div className="relative z-30 pb-2 px-4 flex items-center justify-center gap-2 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 p-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 shadow-2xl">
+          <button
+            onClick={() => triggerAction(avatarAction === 'standing' ? 'sitting' : 'standing')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer"
+            title="Ask companion to stand or sit"
+          >
+            <span>🪑</span>
+            <span>{avatarAction === 'standing' ? 'Sit Down' : 'Stand Up'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              triggerAction('cooking', 8000);
+              sendUserMessage("Could you make us some warm coffee?");
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-amber-200 transition-all cursor-pointer"
+            title="Ask companion to prepare coffee/food"
+          >
+            <span>☕</span>
+            <span>Make Coffee</span>
+          </button>
+
+          <button
+            onClick={cycleOutfit}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-pink-300 transition-all cursor-pointer"
+            title="Change companion outfit"
+          >
+            <span>👗</span>
+            <span>Change Outfit</span>
+          </button>
+
+          <button
+            onClick={() => {
+              triggerAction('workout', 7000);
+              sendUserMessage("Let's do a quick workout stretch together!");
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-cyan-200 transition-all cursor-pointer"
+            title="Do a workout session"
+          >
+            <span>🤸</span>
+            <span>Workout</span>
+          </button>
+
+          <button
+            onClick={() => triggerAction('wave', 4000)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-emerald-200 transition-all cursor-pointer"
+            title="Wave hand"
+          >
+            <span>👋</span>
+            <span>Wave</span>
+          </button>
+
+          <button
+            onClick={() => triggerAction('kiss', 5000)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-rose-300 transition-all cursor-pointer"
+            title="Blow a kiss"
+          >
+            <span>💋</span>
+            <span>Kiss</span>
+          </button>
+        </div>
       </div>
 
       {/* ── BOTTOM CALL CONTROL DOCK ────────────────────────────────────────── */}
@@ -323,8 +395,8 @@ export default function VirtualVideoCallPage() {
 
         {/* End Call Button */}
         <button
-          onClick={endCall}
-          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition-all duration-200 shadow-2xl hover:scale-105 ring-4 ring-rose-500/30"
+          onClick={handleExitCall}
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition-all duration-200 shadow-2xl hover:scale-105 ring-4 ring-rose-500/30 cursor-pointer"
           title="End Video Call"
         >
           <FaPhoneSlash className="text-2xl" />
@@ -335,61 +407,52 @@ export default function VirtualVideoCallPage() {
       <Modal
         isOpen={callStatus === 'ended'}
         onClose={() => router.push('/virtual')}
-        backdrop="blur"
+        isDismissable={false}
         hideCloseButton
-        className="bg-gray-900 border border-white/10 text-white rounded-3xl"
+        backdrop="blur"
+        className="bg-gray-900 border border-white/10 text-white"
       >
         <ModalContent>
-          <ModalHeader className="flex flex-col gap-1 items-center pt-8">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white text-2xl shadow-xl mb-2">
-              <FaPhoneSlash />
-            </div>
-            <h2 className="text-2xl font-bold">Video Call Ended</h2>
-            <p className="text-xs text-gray-400">Call with {persona.name}</p>
+          <ModalHeader className="flex flex-col gap-1 text-center">
+            <h3 className="text-xl font-bold bg-gradient-to-r from-pink-500 to-purple-400 bg-clip-text text-transparent">
+              Call Completed
+            </h3>
+            <p className="text-xs text-gray-400 font-normal">
+              You connected with {persona.name}
+            </p>
           </ModalHeader>
-
-          <ModalBody className="text-center py-4 space-y-4">
-            <div className="flex justify-center gap-6 bg-white/5 p-4 rounded-2xl border border-white/10">
-              <div className="flex flex-col items-center">
-                <span className="text-xs text-gray-400 flex items-center gap-1">
-                  <FaClock className="text-pink-400" /> Duration
-                </span>
-                <span className="text-lg font-bold font-mono text-white">
-                  {formatDuration(callDuration)}
-                </span>
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-xs text-gray-400 flex items-center gap-1">
-                  <HiSparkles className="text-amber-400" /> Connection
-                </span>
-                <span className="text-lg font-bold text-emerald-400">
-                  {persona.traits.warmth}% Match
-                </span>
-              </div>
+          <ModalBody className="py-6 flex flex-col items-center">
+            <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-purple-500 mb-3 shadow-lg">
+              <img
+                src={persona.avatarImage}
+                alt={persona.name}
+                className="w-full h-full object-cover"
+              />
             </div>
-
-            <p className="text-xs text-gray-300 leading-relaxed px-4">
-              Thank you for connecting with {persona.name}! You can call again anytime or explore other virtual companions.
+            <div className="flex items-center gap-2 text-sm text-gray-300">
+              <FaClock className="text-pink-400" />
+              <span>Duration: {formatDuration(callDuration)}</span>
+            </div>
+            <p className="text-xs text-gray-400 text-center mt-3 max-w-xs">
+              Hope you enjoyed the connection! Your conversation memory has been saved.
             </p>
           </ModalBody>
-
-          <ModalFooter className="flex flex-col sm:flex-row gap-2 pb-6">
+          <ModalFooter className="flex justify-center gap-3">
             <Button
-              fullWidth
-              variant="bordered"
-              className="border-white/20 text-white font-medium"
+              color="primary"
+              variant="flat"
+              onPress={() => window.location.reload()}
               startContent={<FaRedoAlt className="text-xs" />}
-              onClick={() => window.location.reload()}
             >
               Call Again
             </Button>
             <Button
-              fullWidth
-              className="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold"
+              as={Link}
+              href="/virtual"
+              color="primary"
               startContent={<FaUserFriends className="text-xs" />}
-              onClick={() => router.push('/virtual')}
             >
-              Browse Companions
+              Explore More Companions
             </Button>
           </ModalFooter>
         </ModalContent>
