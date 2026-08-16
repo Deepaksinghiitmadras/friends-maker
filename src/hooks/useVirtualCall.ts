@@ -53,6 +53,7 @@ export function useVirtualCall(persona: VirtualPersona) {
   const speechDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioAnimationRef = useRef<number | null>(null);
   const accumulatedSpeechRef = useRef<string>('');
+  const currentAudioElementRef = useRef<HTMLAudioElement | null>(null);
   
   // Anti-Acoustic Echo State
   const isSpeakingRef = useRef<boolean>(false);
@@ -128,7 +129,6 @@ export function useVirtualCall(persona: VirtualPersona) {
           localStreamRef.current = stream;
           setLocalStream(stream);
         } else {
-          // If unmounted before stream resolved, immediately stop tracks
           stream.getTracks().forEach((t) => {
             t.stop();
             t.enabled = false;
@@ -144,6 +144,12 @@ export function useVirtualCall(persona: VirtualPersona) {
     return () => {
       isMounted = false;
       killAllMediaTracks();
+      if (currentAudioElementRef.current) {
+        try {
+          currentAudioElementRef.current.pause();
+          currentAudioElementRef.current.src = '';
+        } catch (_) {}
+      }
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
@@ -178,11 +184,9 @@ export function useVirtualCall(persona: VirtualPersona) {
     };
   }, [callStatus]);
 
-  // ── 3. SPEECH SYNTHESIS (AVATAR TALKING WITH ANTI-ECHO) ───────────────────
+  // ── 3. SPEECH SYNTHESIS (NEURAL TTS WITH WEBSPEECH FALLBACK) ──────────────
   const speakText = useCallback(
-    (text: string) => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
+    async (text: string) => {
       // 1. HARD-PAUSE speech recognition so speaker audio is NEVER picked up as user input
       isSpeakingRef.current = true;
       lastCompanionSpeechRef.current = text.toLowerCase();
@@ -195,35 +199,12 @@ export function useVirtualCall(persona: VirtualPersona) {
         } catch (_) {}
       }
 
-      window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.pitch = persona.voiceStyle.pitch;
-      utterance.rate = persona.voiceStyle.rate;
-
-      // Select Language (Hindi for Ananya, English for others)
-      if (persona.id === 'ananya-sharma') {
-        utterance.lang = 'hi-IN';
-      } else {
-        utterance.lang = 'en-US';
-      }
-
-      const voices = window.speechSynthesis.getVoices();
-      if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
-        const found = voices.find((v) =>
-          persona.voiceStyle.preferredVoiceNames?.some((pref) =>
-            v.name.toLowerCase().includes(pref.toLowerCase())
-          )
-        );
-        if (found) {
-          utterance.voice = found;
-        } else if (persona.id === 'ananya-sharma') {
-          // Fallback to any Indian voice available
-          const indianVoice = voices.find(
-            (v) => v.lang.includes('hi') || v.lang.includes('IN') || v.name.toLowerCase().includes('india')
-          );
-          if (indianVoice) utterance.voice = indianVoice;
-        }
+      // Stop any existing audio element
+      if (currentAudioElementRef.current) {
+        try {
+          currentAudioElementRef.current.pause();
+          currentAudioElementRef.current.src = '';
+        } catch (_) {}
       }
 
       // Audio waveform animation during speech
@@ -249,43 +230,107 @@ export function useVirtualCall(persona: VirtualPersona) {
         }, 450);
       };
 
-      utterance.onend = handleSpeechEnd;
-      utterance.onerror = handleSpeechEnd;
+      // Try Neural TTS API first for human-realistic voice
+      try {
+        const ttsRes = await fetch('/api/virtual/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            personaId: persona.id,
+            language: persona.id === 'ananya-sharma' ? 'hi' : 'en',
+          }),
+        });
 
-      window.speechSynthesis.speak(utterance);
+        if (ttsRes.ok) {
+          const ttsData = await ttsRes.json();
+          if (ttsData.audioUrl) {
+            const audio = new Audio(ttsData.audioUrl);
+            currentAudioElementRef.current = audio;
+            audio.onended = handleSpeechEnd;
+            audio.onerror = () => {
+              // If neural audio stream errors, fallback to browser speech synthesis
+              speakWithWebSpeech(text, handleSpeechEnd);
+            };
+            await audio.play();
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Neural TTS fetch error, using WebSpeech fallback:', err);
+      }
+
+      // Fallback to WebSpeech API
+      speakWithWebSpeech(text, handleSpeechEnd);
     },
     [persona]
   );
 
-  // ── 4. CONVERSATIONAL ACTION & INTENT PARSER ──────────────────────────────
-  const parseActionFromSpeech = useCallback((text: string) => {
-    const lower = text.toLowerCase();
-    if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink') || lower.includes('cook')) {
-      setAvatarAction('cooking');
-      setTimeout(() => setAvatarAction('idle'), 9000);
-    } else if (lower.includes('kiss') || lower.includes('love you') || lower.includes('mwah') || lower.includes('pyaar')) {
-      setAvatarAction('kiss');
-      setTimeout(() => setAvatarAction('idle'), 6000);
-    } else if (lower.includes('wave') || lower.includes('hello') || lower.includes('hey') || lower.includes('namaste')) {
-      setAvatarAction('wave');
-      setTimeout(() => setAvatarAction('idle'), 4500);
-    } else if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('gym')) {
-      setAvatarAction('workout');
-      setTimeout(() => setAvatarAction('idle'), 8000);
-    } else if (lower.includes('stand') && !lower.includes('sit')) {
-      setAvatarAction('standing');
-    } else if (lower.includes('sit')) {
-      setAvatarAction('sitting');
-    } else if (lower.includes('outfit') || lower.includes('dress') || lower.includes('wear') || lower.includes('saree') || lower.includes('clothes')) {
-      setAvatarAction('changing_clothes');
-      setTimeout(() => {
-        setOutfit((prev) => (prev === 'casual' ? 'formal' : prev === 'formal' ? 'cozy' : 'sporty'));
-        setAvatarAction('idle');
-      }, 1500);
+  const speakWithWebSpeech = (text: string, onEndCallback: () => void) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      onEndCallback();
+      return;
     }
-  }, []);
 
-  // ── 5. SEND MESSAGE TO AI BACKEND ──────────────────────────────────────────
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.pitch = persona.voiceStyle.pitch;
+    utterance.rate = persona.voiceStyle.rate;
+
+    if (persona.id === 'ananya-sharma') {
+      utterance.lang = 'hi-IN';
+    } else {
+      utterance.lang = 'en-US';
+    }
+
+    const voices = window.speechSynthesis.getVoices();
+    if (persona.voiceStyle.preferredVoiceNames && voices.length > 0) {
+      const found = voices.find((v) =>
+        persona.voiceStyle.preferredVoiceNames?.some((pref) =>
+          v.name.toLowerCase().includes(pref.toLowerCase())
+        )
+      );
+      if (found) {
+        utterance.voice = found;
+      } else if (persona.id === 'ananya-sharma') {
+        const indianVoice = voices.find(
+          (v) => v.lang.includes('hi') || v.lang.includes('IN') || v.name.toLowerCase().includes('india')
+        );
+        if (indianVoice) utterance.voice = indianVoice;
+      }
+    }
+
+    utterance.onend = onEndCallback;
+    utterance.onerror = onEndCallback;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // ── 4. MANUAL ACTIONS DOCK ─────────────────────────────────────────────────
+  const triggerAction = useCallback(
+    (
+      newAction:
+        | 'idle'
+        | 'speaking'
+        | 'standing'
+        | 'sitting'
+        | 'cooking'
+        | 'changing_clothes'
+        | 'workout'
+        | 'wave'
+        | 'kiss',
+      duration = 8000
+    ) => {
+      setAvatarAction(newAction);
+      if (newAction !== 'standing' && newAction !== 'sitting' && newAction !== 'idle') {
+        setTimeout(() => {
+          setAvatarAction('idle');
+        }, duration);
+      }
+    },
+    []
+  );
+
+  // ── 5. SEND MESSAGE TO AI BACKEND (WITH AVAILABLE ACTIONS LIST) ────────────
   const sendUserMessage = useCallback(
     async (messageText: string) => {
       if (!messageText.trim() || isProcessing) return;
@@ -301,15 +346,17 @@ export function useVirtualCall(persona: VirtualPersona) {
       setCurrentCaption(`You: "${cleanedText}"`);
       setIsProcessing(true);
 
-      // Check if user asked for an action in speech
-      parseActionFromSpeech(cleanedText);
-
       // Pause speech recognition while AI thinks & responds
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
         } catch (_) {}
       }
+
+      // Collect available actions from persona
+      const availableActions = Object.keys(persona.videoClips || {}).concat([
+        'idle', 'speaking', 'standing', 'coffee', 'kiss', 'wave', 'workout', 'laugh'
+      ]);
 
       try {
         const res = await fetch('/api/virtual/chat', {
@@ -318,6 +365,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           body: JSON.stringify({
             personaId: persona.id,
             message: cleanedText,
+            availableActions,
             conversationHistory: [...chatHistory, userEntry].slice(-16).map((c) => ({
               role: c.sender === 'user' ? 'user' : 'assistant',
               content: c.text,
@@ -328,11 +376,18 @@ export function useVirtualCall(persona: VirtualPersona) {
         const data = await res.json();
         const replyText = data.reply || "I'm so glad we are talking right now, tell me more!";
 
-        // Trigger AI Decided Action if returned by Groq/Gemini pipeline
+        // Trigger AI Decided Action (e.g. standing, coffee, kiss, wave, workout)
         if (data.action && data.action !== 'idle') {
-          triggerAction(data.action as any, 8000);
-        } else {
-          parseActionFromSpeech(replyText);
+          const actionMap: any = {
+            coffee: 'cooking',
+            cooking: 'cooking',
+            kiss: 'kiss',
+            wave: 'wave',
+            workout: 'workout',
+            standing: 'standing',
+            laugh: 'speaking',
+          };
+          triggerAction(actionMap[data.action] || data.action, 8000);
         }
 
         const companionEntry: ChatEntry = {
@@ -350,7 +405,7 @@ export function useVirtualCall(persona: VirtualPersona) {
         speakText("You have such a wonderful way with words. Tell me more about that!");
       }
     },
-    [chatHistory, isProcessing, parseActionFromSpeech, persona.id, speakText]
+    [chatHistory, isProcessing, persona, speakText, triggerAction]
   );
 
   // ── 6. ROBUST SPEECH RECOGNITION (ANTI-FEEDBACK ECHO FILTER) ──────────────
@@ -472,31 +527,6 @@ export function useVirtualCall(persona: VirtualPersona) {
     return () => clearTimeout(greetingTimer);
   }, []);
 
-  // ── 8. MANUAL ACTIONS DOCK ─────────────────────────────────────────────────
-  const triggerAction = useCallback(
-    (
-      newAction:
-        | 'idle'
-        | 'speaking'
-        | 'standing'
-        | 'sitting'
-        | 'cooking'
-        | 'changing_clothes'
-        | 'workout'
-        | 'wave'
-        | 'kiss',
-      duration = 6000
-    ) => {
-      setAvatarAction(newAction);
-      if (newAction !== 'standing' && newAction !== 'sitting' && newAction !== 'idle') {
-        setTimeout(() => {
-          setAvatarAction('idle');
-        }, duration);
-      }
-    },
-    []
-  );
-
   const cycleOutfit = useCallback(() => {
     setAvatarAction('changing_clothes');
     setTimeout(() => {
@@ -510,7 +540,7 @@ export function useVirtualCall(persona: VirtualPersona) {
     }, 1200);
   }, []);
 
-  // ── 9. CONTROLS (MUTE / VIDEO TOGGLE / HANGUP) ─────────────────────────────
+  // ── 8. CONTROLS (MUTE / VIDEO TOGGLE / HANGUP) ─────────────────────────────
   const toggleMic = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = isMicMuted));
@@ -533,13 +563,16 @@ export function useVirtualCall(persona: VirtualPersona) {
   }, [isVideoOff]);
 
   const endCall = useCallback(() => {
-    // 1. Immediately cancel all speech synthesis voice
+    if (currentAudioElementRef.current) {
+      try {
+        currentAudioElementRef.current.pause();
+        currentAudioElementRef.current.src = '';
+      } catch (_) {}
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       window.speechSynthesis.pause();
-      window.speechSynthesis.cancel();
     }
-    // 2. Stop speech recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -547,11 +580,9 @@ export function useVirtualCall(persona: VirtualPersona) {
       } catch (_) {}
       recognitionRef.current = null;
     }
-    // 3. HARD KILL all local camera and microphone tracks across window
     killAllMediaTracks();
     setLocalStream(null);
 
-    // 4. Cancel any audio animations & timers
     if (audioAnimationRef.current) {
       cancelAnimationFrame(audioAnimationRef.current);
       audioAnimationRef.current = null;

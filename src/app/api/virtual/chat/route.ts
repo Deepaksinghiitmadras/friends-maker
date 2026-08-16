@@ -8,7 +8,7 @@ interface ChatMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { personaId, message, conversationHistory } = await req.json();
+    const { personaId, message, conversationHistory, availableActions } = await req.json();
 
     const persona = getPersonaById(personaId);
     if (!persona) {
@@ -19,28 +19,30 @@ export async function POST(req: NextRequest) {
     const geminiKey = process.env.GEMINI_API_KEY;
     const modelToUse = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
+    const actionsList = (availableActions && availableActions.length > 0)
+      ? availableActions
+      : ['idle', 'speaking', 'coffee', 'kiss', 'wave', 'workout', 'standing', 'laugh'];
+
     // Enhanced System Prompt for AI Action & Emotion Decision Pipeline
     const systemPromptWithActions = `${persona.systemPrompt}
 
 ACTION DECISION PIPELINE (MANDATORY):
-Along with your dating conversation reply, you must choose the most natural interactive video action for this exact moment from this list:
-- "idle" (normal relaxed presence)
-- "speaking" (talking & smiling)
-- "coffee" or "cooking" (sipping coffee/chai/tea or holding mug)
-- "kiss" (blowing a sweet kiss, blushing romantic affection)
-- "wave" (greeting, waving hand, saying hello/namaste)
-- "workout" (stretching, energetic fitness, active vibe)
-- "standing" (standing up to show outfit, stepping back)
-- "laugh" (laughing at a joke, giggling playfully)
-- "blush" (touching cheek, shy flattered smile)
-- "wink" (playful wink, teasing)
-- "cheers" (raising a glass or drink)
-- "dance" (subtle dancing or swaying to music)
+You MUST select one action from the AVAILABLE ACTIONS LIST below that best matches the moment:
+Available Actions: [${actionsList.map((a: string) => `"${a}"`).join(', ')}]
+
+Rules for Action selection:
+- If user asks to show outfit / stand up / dress -> select "standing"
+- If user or you mentions coffee / chai / drink / sip -> select "coffee"
+- If user or you is flirty / mentions kiss / love / blushing -> select "kiss"
+- If user or you greets / says hi / waves -> select "wave"
+- If user mentions gym / workout / active -> select "workout"
+- If user makes a joke / you laugh -> select "laugh"
+- Otherwise, if speaking normally -> select "speaking"
 
 Output format: You MUST respond in valid JSON format only:
 {
   "reply": "Your 2-3 sentence warm, spoken dating response here",
-  "action": "idle | speaking | coffee | kiss | wave | workout | standing | laugh | blush | wink | cheers | dance",
+  "action": "one of: ${actionsList.join(' | ')}",
   "emotion": "romantic | playful | happy | thoughtful | empathetic"
 }`;
 
@@ -76,13 +78,13 @@ Output format: You MUST respond in valid JSON format only:
               const parsed = JSON.parse(rawContent);
               return NextResponse.json({
                 reply: parsed.reply || rawContent,
-                action: parsed.action || extractActionFromText(parsed.reply || rawContent),
+                action: parsed.action || extractActionFromText(parsed.reply || rawContent, actionsList),
                 emotion: parsed.emotion || 'romantic',
                 source: 'groq',
                 model: modelToUse,
               });
             } catch (_) {
-              const action = extractActionFromText(rawContent);
+              const action = extractActionFromText(rawContent, actionsList);
               return NextResponse.json({
                 reply: rawContent,
                 action,
@@ -124,7 +126,7 @@ Output format: You MUST respond in valid JSON format only:
             const parsed = JSON.parse(rawText);
             return NextResponse.json({
               reply: parsed.reply,
-              action: parsed.action || extractActionFromText(parsed.reply),
+              action: parsed.action || extractActionFromText(parsed.reply, actionsList),
               emotion: parsed.emotion || 'romantic',
               source: 'gemini',
             });
@@ -149,17 +151,15 @@ Output format: You MUST respond in valid JSON format only:
   }
 }
 
-function extractActionFromText(text: string): string {
+function extractActionFromText(text: string, actionsList: string[]): string {
   const lower = text.toLowerCase();
-  if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink') || lower.includes('sip')) return 'coffee';
-  if (lower.includes('kiss') || lower.includes('mwah') || lower.includes('love you') || lower.includes('pyaar')) return 'kiss';
-  if (lower.includes('wave') || lower.includes('hello') || lower.includes('hey') || lower.includes('namaste')) return 'wave';
-  if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('fitness')) return 'workout';
-  if (lower.includes('stand') || lower.includes('dress') || lower.includes('outfit')) return 'standing';
-  if (lower.includes('laugh') || lower.includes('haha') || lower.includes('funny') || lower.includes('hilarious')) return 'laugh';
-  if (lower.includes('blush') || lower.includes('shy') || lower.includes('cute')) return 'blush';
-  if (lower.includes('cheers') || lower.includes('wine') || lower.includes('toast')) return 'cheers';
-  return 'speaking';
+  if ((lower.includes('stand') || lower.includes('dress') || lower.includes('outfit')) && actionsList.includes('standing')) return 'standing';
+  if ((lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink') || lower.includes('sip')) && actionsList.includes('coffee')) return 'coffee';
+  if ((lower.includes('kiss') || lower.includes('mwah') || lower.includes('love you') || lower.includes('pyaar')) && actionsList.includes('kiss')) return 'kiss';
+  if ((lower.includes('wave') || lower.includes('hello') || lower.includes('hey') || lower.includes('namaste')) && actionsList.includes('wave')) return 'wave';
+  if ((lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('fitness')) && actionsList.includes('workout')) return 'workout';
+  if ((lower.includes('laugh') || lower.includes('haha') || lower.includes('funny') || lower.includes('hilarious')) && actionsList.includes('laugh')) return 'laugh';
+  return actionsList.includes('speaking') ? 'speaking' : 'idle';
 }
 
 function generatePersonaResponse(
@@ -167,6 +167,15 @@ function generatePersonaResponse(
   userText: string
 ): { reply: string; action: string; emotion: string } {
   const text = userText.toLowerCase().trim();
+
+  // Outfit / Stand up
+  if (text.includes('outfit') || text.includes('dress') || text.includes('stand') || text.includes('show')) {
+    return {
+      reply: `I would love to! Let me stand up and show you my outfit from head to toe. What do you think?`,
+      action: 'standing',
+      emotion: 'playful',
+    };
+  }
 
   // Coffee / Chai
   if (text.includes('coffee') || text.includes('chai') || text.includes('tea') || text.includes('drink')) {
@@ -199,15 +208,6 @@ function generatePersonaResponse(
       reply: `Hey there handsome! *waves warmly* Seeing your face on video just made my whole day brighter!`,
       action: 'wave',
       emotion: 'happy',
-    };
-  }
-
-  // Standing / Outfit
-  if (text.includes('stand') || text.includes('dress') || text.includes('outfit') || text.includes('look')) {
-    return {
-      reply: `Let me stand up for a second so you can see! What do you think of this look for our date?`,
-      action: 'standing',
-      emotion: 'playful',
     };
   }
 

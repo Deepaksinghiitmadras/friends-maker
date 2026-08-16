@@ -37,7 +37,7 @@ export default function VirtualAvatarCanvas({
   // Base idle video (always active in background)
   const idleVideoSrc = persona.videoClips?.idle;
 
-  // Active overlay video (speaking, coffee, kiss, wave, laugh, blush, wink, cheers, workout, etc.)
+  // Active overlay video (speaking, coffee, kiss, wave, laugh, blush, standing, etc.)
   const actionVideoSrc = useMemo(() => {
     if (action && action !== 'idle' && action !== 'speaking') {
       const clipKey = action === 'cooking' ? 'coffee' : action;
@@ -51,14 +51,6 @@ export default function VirtualAvatarCanvas({
     }
     return undefined;
   }, [persona.id, persona.videoClips, action, isSpeaking]);
-
-  // Manage action video playback
-  useEffect(() => {
-    if (actionVideoRef.current && actionVideoSrc) {
-      actionVideoRef.current.currentTime = 0;
-      actionVideoRef.current.play().catch(() => {});
-    }
-  }, [actionVideoSrc]);
 
   // Audio level smoothing
   const normalizedLevel = Math.max(0.1, Math.min(1, audioLevel || 0.4));
@@ -117,6 +109,7 @@ export default function VirtualAvatarCanvas({
             {/* 3. Action / Talking Video Overlay Layer (Crossfades seamlessly when active) */}
             {actionVideoSrc && (
               <video
+                key={actionVideoSrc}
                 ref={actionVideoRef}
                 src={actionVideoSrc}
                 autoPlay
@@ -124,7 +117,9 @@ export default function VirtualAvatarCanvas({
                 muted
                 playsInline
                 onLoadedData={() => setActionVideoLoaded(true)}
-                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-400 ${
+                onPlay={() => setActionVideoLoaded(true)}
+                onError={() => setActionVideoLoaded(false)}
+                className={`absolute inset-0 w-full h-full object-cover object-center rounded-2xl transition-opacity duration-300 ${
                   actionVideoLoaded ? 'opacity-100' : 'opacity-0'
                 }`}
               />
@@ -310,7 +305,7 @@ export default function VirtualAvatarCanvas({
               exit={{ opacity: 0, x: 15 }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-900/90 backdrop-blur-xl border border-purple-400/40 text-purple-100 text-xs font-semibold shadow-xl"
             >
-              {action === 'standing' && '🧍 Standing'}
+              {action === 'standing' && '🧍 Standing & Showing Outfit'}
               {action === 'sitting' && '🪑 Sitting Down'}
               {action === 'cooking' && '☕ Brewing Coffee'}
               {action === 'changing_clothes' && `👗 ${outfit}`}
