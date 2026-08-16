@@ -37,17 +37,20 @@ export default function VirtualAvatarCanvas({
   // Base idle video (always active in background)
   const idleVideoSrc = persona.videoClips?.idle;
 
-  // Active overlay video (speaking, coffee, kiss, wave, etc.)
+  // Active overlay video (speaking, coffee, kiss, wave, laugh, blush, wink, cheers, workout, etc.)
   const actionVideoSrc = useMemo(() => {
-    if (!persona.videoClips) return undefined;
-    if (action === 'cooking') return persona.videoClips.cooking;
-    if (action === 'kiss') return persona.videoClips.kiss;
-    if (action === 'wave') return persona.videoClips.wave;
-    if (action === 'workout') return persona.videoClips.workout;
-    if (action === 'standing') return persona.videoClips.standing;
-    if (isSpeaking && persona.videoClips.speaking) return persona.videoClips.speaking;
+    if (action && action !== 'idle' && action !== 'speaking') {
+      const clipKey = action === 'cooking' ? 'coffee' : action;
+      if (persona.videoClips && (persona.videoClips as any)[clipKey]) {
+        return (persona.videoClips as any)[clipKey];
+      }
+      return `/videos/${persona.id}/${clipKey}.mp4`;
+    }
+    if (isSpeaking) {
+      return persona.videoClips?.speaking || `/videos/${persona.id}/speaking.mp4`;
+    }
     return undefined;
-  }, [persona.videoClips, action, isSpeaking]);
+  }, [persona.id, persona.videoClips, action, isSpeaking]);
 
   // Manage action video playback
   useEffect(() => {

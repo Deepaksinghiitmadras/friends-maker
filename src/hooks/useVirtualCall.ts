@@ -328,8 +328,12 @@ export function useVirtualCall(persona: VirtualPersona) {
         const data = await res.json();
         const replyText = data.reply || "I'm so glad we are talking right now, tell me more!";
 
-        // Check if companion reply mentions an action
-        parseActionFromSpeech(replyText);
+        // Trigger AI Decided Action if returned by Groq/Gemini pipeline
+        if (data.action && data.action !== 'idle') {
+          triggerAction(data.action as any, 8000);
+        } else {
+          parseActionFromSpeech(replyText);
+        }
 
         const companionEntry: ChatEntry = {
           sender: 'persona',

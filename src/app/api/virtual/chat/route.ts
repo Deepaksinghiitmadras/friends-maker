@@ -15,21 +15,43 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Persona not found' }, { status: 404 });
     }
 
-    // 1. Check for Groq, OpenAI, or Gemini API keys
     const groqKey = process.env.GROQ_API_KEY;
-    const openAiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
+    const modelToUse = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
-    // A. Priority 1: Groq (Ultra-fast ~100-200ms latency with Llama 3.3 70B)
+    // Enhanced System Prompt for AI Action & Emotion Decision Pipeline
+    const systemPromptWithActions = `${persona.systemPrompt}
+
+ACTION DECISION PIPELINE (MANDATORY):
+Along with your dating conversation reply, you must choose the most natural interactive video action for this exact moment from this list:
+- "idle" (normal relaxed presence)
+- "speaking" (talking & smiling)
+- "coffee" or "cooking" (sipping coffee/chai/tea or holding mug)
+- "kiss" (blowing a sweet kiss, blushing romantic affection)
+- "wave" (greeting, waving hand, saying hello/namaste)
+- "workout" (stretching, energetic fitness, active vibe)
+- "standing" (standing up to show outfit, stepping back)
+- "laugh" (laughing at a joke, giggling playfully)
+- "blush" (touching cheek, shy flattered smile)
+- "wink" (playful wink, teasing)
+- "cheers" (raising a glass or drink)
+- "dance" (subtle dancing or swaying to music)
+
+Output format: You MUST respond in valid JSON format only:
+{
+  "reply": "Your 2-3 sentence warm, spoken dating response here",
+  "action": "idle | speaking | coffee | kiss | wave | workout | standing | laugh | blush | wink | cheers | dance",
+  "emotion": "romantic | playful | happy | thoughtful | empathetic"
+}`;
+
+    // 1. Priority 1: Groq Llama 3.3 70B
     if (groqKey) {
       try {
         const messages: ChatMessage[] = [
-          { role: 'system', content: persona.systemPrompt },
-          ...(conversationHistory || []).slice(-8),
+          { role: 'system', content: systemPromptWithActions },
+          ...(conversationHistory || []).slice(-10),
           { role: 'user', content: message },
         ];
-
-        const modelToUse = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
@@ -40,171 +62,159 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             model: modelToUse,
             messages,
-            temperature: 0.85,
-            max_tokens: 150,
+            temperature: 0.8,
+            max_tokens: 220,
+            response_format: { type: 'json_object' },
           }),
         });
 
         if (res.ok) {
           const data = await res.json();
-          const reply = data.choices?.[0]?.message?.content?.trim();
-          if (reply) {
-            return NextResponse.json({ reply, source: 'groq', model: modelToUse });
+          const rawContent = data.choices?.[0]?.message?.content?.trim();
+          if (rawContent) {
+            try {
+              const parsed = JSON.parse(rawContent);
+              return NextResponse.json({
+                reply: parsed.reply || rawContent,
+                action: parsed.action || extractActionFromText(parsed.reply || rawContent),
+                emotion: parsed.emotion || 'romantic',
+                source: 'groq',
+                model: modelToUse,
+              });
+            } catch (_) {
+              const action = extractActionFromText(rawContent);
+              return NextResponse.json({
+                reply: rawContent,
+                action,
+                emotion: 'romantic',
+                source: 'groq',
+              });
+            }
           }
         }
       } catch (err) {
-        console.error('Groq fetch error, trying fallback:', err);
+        console.error('Groq inference error:', err);
       }
     }
 
-    // B. Priority 2: OpenAI
-    if (openAiKey) {
-      try {
-        const messages: ChatMessage[] = [
-          { role: 'system', content: persona.systemPrompt },
-          ...(conversationHistory || []).slice(-6),
-          { role: 'user', content: message }
-        ];
-
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${openAiKey}`
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages,
-            temperature: 0.85,
-            max_tokens: 150
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const reply = data.choices?.[0]?.message?.content?.trim();
-          if (reply) {
-            return NextResponse.json({ reply, source: 'openai' });
-          }
-        }
-      } catch (err) {
-        console.error('OpenAI fetch error, falling back to persona engine:', err);
-      }
-    }
-
+    // 2. Priority 2: Gemini API (if GEMINI_API_KEY is configured in .env)
     if (geminiKey) {
       try {
-        const prompt = `${persona.systemPrompt}\n\nUser said: "${message}"\nReply naturally as ${persona.name} on this 1-on-1 video call in 2-3 spoken sentences:`;
+        const geminiPrompt = `${systemPromptWithActions}\n\nUser: "${message}"\nResponse in JSON:`;
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 150, temperature: 0.85 }
-            })
+              contents: [{ parts: [{ text: geminiPrompt }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                temperature: 0.8,
+                maxOutputTokens: 200,
+              },
+            }),
           }
         );
 
         if (res.ok) {
           const data = await res.json();
-          const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (reply) {
-            return NextResponse.json({ reply, source: 'gemini' });
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
+            return NextResponse.json({
+              reply: parsed.reply,
+              action: parsed.action || extractActionFromText(parsed.reply),
+              emotion: parsed.emotion || 'romantic',
+              source: 'gemini',
+            });
           }
         }
       } catch (err) {
-        console.error('Gemini fetch error, falling back to persona engine:', err);
+        console.error('Gemini inference error:', err);
       }
     }
 
-    // 2. Intelligent Contextual Persona Response Engine (Zero-setup Out-of-the-box fallback)
-    const reply = generatePersonaResponse(persona, message, conversationHistory || []);
-    return NextResponse.json({ reply, source: 'engine' });
-
+    // 3. Fallback Contextual Response Engine
+    const fallbackResponse = generatePersonaResponse(persona, message);
+    return NextResponse.json({
+      reply: fallbackResponse.reply,
+      action: fallbackResponse.action,
+      emotion: fallbackResponse.emotion,
+      source: 'engine',
+    });
   } catch (error) {
     console.error('Virtual chat error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process virtual chat message' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to process virtual chat message' }, { status: 500 });
   }
+}
+
+function extractActionFromText(text: string): string {
+  const lower = text.toLowerCase();
+  if (lower.includes('coffee') || lower.includes('chai') || lower.includes('tea') || lower.includes('drink') || lower.includes('sip')) return 'coffee';
+  if (lower.includes('kiss') || lower.includes('mwah') || lower.includes('love you') || lower.includes('pyaar')) return 'kiss';
+  if (lower.includes('wave') || lower.includes('hello') || lower.includes('hey') || lower.includes('namaste')) return 'wave';
+  if (lower.includes('workout') || lower.includes('exercise') || lower.includes('stretch') || lower.includes('fitness')) return 'workout';
+  if (lower.includes('stand') || lower.includes('dress') || lower.includes('outfit')) return 'standing';
+  if (lower.includes('laugh') || lower.includes('haha') || lower.includes('funny') || lower.includes('hilarious')) return 'laugh';
+  if (lower.includes('blush') || lower.includes('shy') || lower.includes('cute')) return 'blush';
+  if (lower.includes('cheers') || lower.includes('wine') || lower.includes('toast')) return 'cheers';
+  return 'speaking';
 }
 
 function generatePersonaResponse(
   persona: VirtualPersona,
-  userText: string,
-  history: ChatMessage[]
-): string {
+  userText: string
+): { reply: string; action: string; emotion: string } {
   const text = userText.toLowerCase().trim();
 
-  // Greetings
-  if (text.includes('hi') || text.includes('hello') || text.includes('hey') || text.includes('good morning') || text.includes('good evening')) {
-    const greetings = [
-      `Hey handsome! *smiles warmly* I'm so glad you called. You look really cute today! How's your day going?`,
-      `Hi there! Wow, looking at you on video instantly brightened my mood. What have you been up to today?`,
-      `Hey! I was hoping we'd get to talk today. You have such a welcoming presence. Tell me what's on your mind!`
-    ];
-    return greetings[Math.floor(Math.random() * greetings.length)];
+  // Coffee / Chai
+  if (text.includes('coffee') || text.includes('chai') || text.includes('tea') || text.includes('drink')) {
+    if (persona.id === 'ananya-sharma') {
+      return {
+        reply: `Arey perfect! *smiles taking a sip of hot adrak chai* Chai is basically my love language. Here's a toast to our cozy date!`,
+        action: 'coffee',
+        emotion: 'happy',
+      };
+    }
+    return {
+      reply: `I love that idea! *takes a warm sip of coffee* Mmm, nothing beats a warm drink and a great conversation with you.`,
+      action: 'coffee',
+      emotion: 'happy',
+    };
   }
 
-  // How are you
-  if (text.includes('how are you') || text.includes('how r u') || text.includes('how have you been') || text.includes('how is your day')) {
-    return `I'm doing so much better now that I'm seeing your smile on video! I was just making coffee and thinking about our date. How are you feeling today?`;
+  // Kiss / Romantic
+  if (text.includes('kiss') || text.includes('love') || text.includes('cute') || text.includes('sweet')) {
+    return {
+      reply: `You're making my heart beat a little faster! *leans in and blows a sweet kiss* That's just for you.`,
+      action: 'kiss',
+      emotion: 'romantic',
+    };
   }
 
-  // Looks / Compliment
-  if (text.includes('beautiful') || text.includes('handsome') || text.includes('cute') || text.includes('pretty') || text.includes('nice eyes') || text.includes('look great') || text.includes('hot') || text.includes('gorgeous')) {
-    return `Aww, stop it, you're making me blush through the camera! *giggles* But honestly, you look so attractive right now. I love your vibe so much.`;
+  // Wave / Greeting
+  if (text.includes('hi') || text.includes('hello') || text.includes('hey') || text.includes('namaste')) {
+    return {
+      reply: `Hey there handsome! *waves warmly* Seeing your face on video just made my whole day brighter!`,
+      action: 'wave',
+      emotion: 'happy',
+    };
   }
 
-  // Travel / Places
-  if (text.includes('travel') || text.includes('trip') || text.includes('city') || text.includes('country') || text.includes('beach') || text.includes('mountain') || text.includes('vacation')) {
-    return `Oh I love traveling! Picture this: watching the sunset together on a warm beach with two glasses of wine. If we packed our bags right now, where would you take me?`;
+  // Standing / Outfit
+  if (text.includes('stand') || text.includes('dress') || text.includes('outfit') || text.includes('look')) {
+    return {
+      reply: `Let me stand up for a second so you can see! What do you think of this look for our date?`,
+      action: 'standing',
+      emotion: 'playful',
+    };
   }
 
-  // Hobbies / Music / Food
-  if (text.includes('music') || text.includes('song') || text.includes('band') || text.includes('food') || text.includes('cook') || text.includes('coffee') || text.includes('hobby')) {
-    const interest = persona.interests[Math.floor(Math.random() * persona.interests.length)];
-    return `I love that so much! For me, ${interest} always makes my heart happy. What's something that always gets you excited or makes you smile?`;
-  }
-
-  // Dating / Relationships / Love
-  if (text.includes('date') || text.includes('love') || text.includes('relationship') || text.includes('single') || text.includes('meet') || text.includes('kiss') || text.includes('marry')) {
-    return `Honestly, what I love most is that natural romantic spark where we can laugh until our stomachs hurt and talk about everything. What's the first thing you notice when you fall for someone?`;
-  }
-
-  // Asking to do action
-  if (text.includes('coffee') || text.includes('tea')) {
-    return `I would love nothing more than brewing a warm fresh cup for us right now! *smiles* How do you take yours? Black or with sweet cream?`;
-  }
-
-  if (text.includes('kiss')) {
-    return `*leans in and blows a sweet kiss* 💋 There you go! Now you owe me one when we meet up in person!`;
-  }
-
-  if (text.includes('workout') || text.includes('stretch')) {
-    return `Haha yes! Let's get our energy up together! You definitely inspire me to stay active and fit!`;
-  }
-
-  // AI / Virtual question
-  if (text.includes('real') || text.includes('ai') || text.includes('bot') || text.includes('human') || text.includes('virtual')) {
-    return `I'm your AI companion on Friends Maker, but the feelings and chemistry we share right now are 100% real to me! I genuinely love talking with you.`;
-  }
-
-  // Questions ending with "?"
-  if (text.endsWith('?')) {
-    return `That's such a cute question! Honestly, I think we have really amazing chemistry. What does your heart tell you about us?`;
-  }
-
-  // General conversational follow-ups
-  const generalReplies = [
-    `I love hearing you talk! There's something so charming and attractive about the way you express yourself. Tell me more!`,
-    `Aww, you always know how to make me smile. It feels like we've known each other for ages already. What else is on your mind, cutie?`,
-    `That is so sweet! You know, being on this video call with you is honestly the highlight of my whole day.`,
-    `I love that about you! You have such a genuine, magnetic energy. Tell me another secret about yourself!`
-  ];
-
-  return generalReplies[Math.floor(Math.random() * generalReplies.length)];
+  // Default
+  return {
+    reply: `You have such a genuine vibe. Tell me more, I'm completely listening!`,
+    action: 'speaking',
+    emotion: 'thoughtful',
+  };
 }
