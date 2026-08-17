@@ -62,6 +62,9 @@ export function useVirtualCall(persona: VirtualPersona) {
   const [currentCaption, setCurrentCaption] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<ChatEntry[]>([]);
   const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [micLanguage, setMicLanguage] = useState<'hi-IN' | 'en-US'>(
+    persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US'
+  );
 
   // Diagnostic Logs for On-Screen HUD & Debugging
   const [diagnosticLogs, setDiagnosticLogs] = useState<DiagnosticLog[]>([]);
@@ -72,6 +75,7 @@ export function useVirtualCall(persona: VirtualPersona) {
 
   // Stable Refs
   const localStreamRef = useRef<MediaStream | null>(null);
+  const micLanguageRef = useRef<string>(persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US');
   const recognitionRef = useRef<any>(null);
   const recognitionStateRef = useRef<'idle' | 'starting' | 'listening' | 'stopping'>('idle');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -103,6 +107,10 @@ export function useVirtualCall(persona: VirtualPersona) {
   useEffect(() => {
     callStatusRef.current = callStatus;
   }, [callStatus]);
+
+  useEffect(() => {
+    micLanguageRef.current = micLanguage;
+  }, [micLanguage]);
 
   // ── 0. UNIFIED DIAGNOSTIC LOGGER ─────────────────────────────────────────────
 
@@ -705,14 +713,14 @@ export function useVirtualCall(persona: VirtualPersona) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = persona.id === 'ananya-sharma' ? 'en-IN' : 'en-US';
+      recognition.lang = micLanguageRef.current || (persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US');
 
       recognition.onstart = () => {
         if (!isSpeakingRef.current) {
           recognitionStateRef.current = 'listening';
           setIsListening(true);
           accumulatedSpeechRef.current = '';
-          addLog('STT', '🟢 Microphone is ACTIVE and listening for user voice...', 'success');
+          addLog('STT', `🟢 Microphone is ACTIVE (${recognition.lang}) and listening for user voice...`, 'success');
         } else {
           try {
             recognition.abort();
@@ -754,7 +762,7 @@ export function useVirtualCall(persona: VirtualPersona) {
 
           accumulatedSpeechRef.current = currentHeard;
           setCurrentCaption(`Listening: "${currentHeard}"`);
-          addLog('STT', `🎙️ Heard: "${currentHeard}"`, 'info');
+          addLog('STT', `🎙️ Heard (${recognition.lang}): "${currentHeard}"`, 'info');
 
           // Debounce: send message after 1.2s pause in speech
           if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
@@ -868,6 +876,26 @@ export function useVirtualCall(persona: VirtualPersona) {
     setIsMicMuted((prev) => !prev);
   }, [isMicMuted, addLog]);
 
+  const toggleMicLanguage = useCallback(() => {
+    setMicLanguage((prev) => {
+      const next = prev === 'hi-IN' ? 'en-US' : 'hi-IN';
+      micLanguageRef.current = next;
+      addLog('STT', `Microphone recognition language switched to: ${next === 'hi-IN' ? 'Hindi (हिन्दी)' : 'English (US)'}`, 'info');
+      // Restart recognition with new language
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (_) {}
+      }
+      recognitionStateRef.current = 'idle';
+      setIsListening(false);
+      setTimeout(() => {
+        startListeningRef.current();
+      }, 300);
+      return next;
+    });
+  }, [addLog]);
+
   const toggleVideo = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = isVideoOff));
@@ -950,9 +978,11 @@ export function useVirtualCall(persona: VirtualPersona) {
     avatarAction,
     outfit,
     diagnosticLogs,
+    micLanguage,
     triggerAction,
     cycleOutfit,
     toggleMic,
+    toggleMicLanguage,
     toggleVideo,
     forceRestartMic,
     testAudioSynthesis,

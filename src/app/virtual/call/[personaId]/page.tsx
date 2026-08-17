@@ -55,9 +55,11 @@ export default function VirtualVideoCallPage() {
     avatarAction,
     outfit,
     diagnosticLogs,
+    micLanguage,
     triggerAction,
     cycleOutfit,
     toggleMic,
+    toggleMicLanguage,
     toggleVideo,
     forceRestartMic,
     testAudioSynthesis,
@@ -158,9 +160,19 @@ export default function VirtualVideoCallPage() {
             <span className="text-gray-200 hidden sm:inline">Encrypted 1-on-1 Call</span>
           </div>
 
+          {/* Microphone Language Switcher (Hindi / English) */}
+          <button
+            onClick={toggleMicLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-purple-900/80 hover:bg-purple-800 border border-purple-400/40 text-purple-100 backdrop-blur-md transition-all cursor-pointer shadow-md"
+            title="Click to switch your microphone language between Hindi and English"
+          >
+            <span>{micLanguage === 'hi-IN' ? '🇮🇳 Mic: Hindi' : '🌐 Mic: English'}</span>
+            <span className="text-[10px] text-purple-300">⇄ Switch</span>
+          </button>
+
           {/* Languages Spoken Badge */}
           {persona.languages && persona.languages.length > 0 && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs font-semibold bg-purple-950/80 border border-purple-500/30 px-3 py-1.5 rounded-full backdrop-blur-md text-purple-200">
+            <div className="hidden lg:flex items-center gap-1.5 text-xs font-semibold bg-white/10 border border-white/15 px-3 py-1.5 rounded-full backdrop-blur-md text-purple-200">
               <span className="text-[10px] text-purple-400 font-bold uppercase">Speaks:</span>
               <span className="text-white font-medium">{persona.languages.join(' · ')}</span>
             </div>

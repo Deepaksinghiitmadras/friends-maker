@@ -30,39 +30,49 @@ export async function POST(req: NextRequest) {
       lang = hasChinese ? 'zh' : 'en';
     }
 
-    const cleanText = text.replace(/[*_~`]/g, '').trim().slice(0, 300);
-    console.log(`[🔊 TTS INCOMING] Persona: "${personaId}" | Lang: "${lang}" | Text: "${cleanText.slice(0, 60)}..."`);
+    const cleanText = text.replace(/[*_~`]/g, '').trim();
+    console.log(`[🔊 TTS INCOMING] Persona: "${personaId}" | Lang: "${lang}" | Length: ${cleanText.length} chars | Text: "${cleanText.slice(0, 60)}..."`);
 
-    // Generate the Google TTS audio URL
-    const googleAudioUrl = googleTTS.getAudioUrl(cleanText, {
+    // Generate Google TTS audio URLs (supports text longer than 200 chars via chunking)
+    const audioUrlObjects = googleTTS.getAllAudioUrls(cleanText, {
       lang: lang,
       slow: false,
       host: 'https://translate.google.com',
+      splitPunct: '.,!?।;',
     });
 
-    // PROXY: Fetch the audio from Google and stream it back to the browser
-    const audioResponse = await fetch(googleAudioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Referer': 'https://translate.google.com/',
-      },
+    // Fetch all audio chunks in parallel
+    const chunkPromises = audioUrlObjects.map(async (item) => {
+      const res = await fetch(item.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          'Referer': 'https://translate.google.com/',
+        },
+      });
+      if (!res.ok) throw new Error(`Google chunk fetch failed with status ${res.status}`);
+      return res.arrayBuffer();
     });
 
-    if (!audioResponse.ok) {
-      console.error(`[🔊 TTS ERROR] Google returned ${audioResponse.status}`);
-      return NextResponse.json({ error: 'Audio fetch failed' }, { status: 502 });
+    const chunkBuffers = await Promise.all(chunkPromises);
+    const totalLength = chunkBuffers.reduce((acc, b) => acc + b.byteLength, 0);
+    
+    // Combine all chunks into a single audio stream
+    const combinedBuffer = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const buf of chunkBuffers) {
+      combinedBuffer.set(new Uint8Array(buf), offset);
+      offset += buf.byteLength;
     }
 
-    const audioBuffer = await audioResponse.arrayBuffer();
     const duration = Date.now() - startTime;
-    console.log(`[🔊 TTS SUCCESS] Generated ${audioBuffer.byteLength} bytes of audio in ${duration}ms`);
+    console.log(`[🔊 TTS SUCCESS] Generated ${totalLength} bytes across ${chunkBuffers.length} chunk(s) in ${duration}ms`);
 
     // Return the audio directly as binary stream
-    return new NextResponse(audioBuffer, {
+    return new NextResponse(combinedBuffer, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Content-Length': String(audioBuffer.byteLength),
+        'Content-Length': String(totalLength),
         'Cache-Control': 'public, max-age=3600',
       },
     });
