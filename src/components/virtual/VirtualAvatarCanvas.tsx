@@ -164,6 +164,13 @@ export default function VirtualAvatarCanvas({
                 loop
                 muted
                 playsInline
+                onError={(e) => {
+                  console.warn(`[AVATAR VIDEO] Failed to load clip "${actionVideoSrc}", falling back to speaking/idle`);
+                  const target = e.currentTarget;
+                  if (persona.videoClips?.speaking && target.src !== persona.videoClips.speaking) {
+                    target.src = persona.videoClips.speaking;
+                  }
+                }}
                 className="absolute inset-0 w-full h-full object-cover object-center rounded-2xl opacity-100 z-10"
               />
             )}

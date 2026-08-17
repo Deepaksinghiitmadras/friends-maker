@@ -235,6 +235,20 @@ export default function VirtualCompanionsPage() {
                       &quot;{persona.tagline}&quot;
                     </p>
 
+                    {/* Languages Spoken Badge */}
+                    {persona.languages && persona.languages.length > 0 && (
+                      <div className="flex items-center gap-1.5 mb-3 px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200/60 dark:border-purple-800/40 text-[11px] text-purple-700 dark:text-purple-300">
+                        <span className="font-semibold text-[10px] uppercase tracking-wider text-purple-500">Speaks:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {persona.languages.map((lang) => (
+                            <span key={lang} className="font-bold text-[10px] bg-white/80 dark:bg-gray-800 px-1.5 py-0.2 rounded text-purple-900 dark:text-purple-200 border border-purple-200/40">
+                              {lang}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Interest Tags */}
                     <div className="flex flex-wrap gap-1 mb-4">
                       {persona.interests.slice(0, 3).map((tag) => (

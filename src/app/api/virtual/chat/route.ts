@@ -7,20 +7,27 @@ interface ChatMessage {
 }
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
   try {
     const { personaId, message, conversationHistory } = await req.json();
 
+    console.log(`\n================== [🤖 VIRTUAL CHAT INCOMING] ==================`);
+    console.log(`[🤖 CHAT] Persona: "${personaId}" | Message: "${message}"`);
+    console.log(`[🤖 CHAT] History Length: ${conversationHistory?.length || 0} messages`);
+
     const persona = getPersonaById(personaId);
     if (!persona) {
+      console.error(`[🤖 CHAT ERROR] Persona "${personaId}" not found`);
       return NextResponse.json({ error: 'Persona not found' }, { status: 404 });
     }
 
     const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
-    const modelToUse = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    const modelToUse = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
     // Get actual available video file names from persona config
     const videoActions = getAvailableVideoActions(persona);
+    console.log(`[🤖 CHAT] Available video actions: [${videoActions.join(', ')}]`);
 
     // Build the action instruction with explicit video file → trigger mapping
     const actionInstructions = `
@@ -49,15 +56,17 @@ RESPONSE FORMAT (valid JSON only, nothing else):
 
     const fullSystemPrompt = `${persona.systemPrompt}\n\n${actionInstructions}`;
 
-    // 1. Priority 1: Groq Llama 3.3 70B
+    // 1. Priority 1: Groq High-Speed Inference
     if (groqKey) {
       try {
+        console.log(`[🤖 CHAT] Attempting Groq inference with model "${modelToUse}"...`);
         const messages: ChatMessage[] = [
           { role: 'system', content: fullSystemPrompt },
           ...(conversationHistory || []).slice(-10),
           { role: 'user', content: message },
         ];
 
+        const groqStart = Date.now();
         const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -73,41 +82,55 @@ RESPONSE FORMAT (valid JSON only, nothing else):
           }),
         });
 
+        const groqDuration = Date.now() - groqStart;
+
         if (res.ok) {
           const data = await res.json();
-          const rawContent = data.choices?.[0]?.message?.content?.trim();
+          let rawContent = data.choices?.[0]?.message?.content?.trim();
           if (rawContent) {
+            // Strip any thought/reasoning tags
+            rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
             try {
               const parsed = JSON.parse(rawContent);
-              const action = validateAction(parsed.action, videoActions, parsed.reply || rawContent);
-              console.log(`[CHAT] AI replied with action="${action}" for message="${message}"`);
+              const cleanReply = (parsed.reply || rawContent).replace(/[*_~`]/g, '').trim();
+              const action = validateAction(parsed.action, videoActions, cleanReply);
+              console.log(`[🤖 CHAT SUCCESS - GROQ] Time: ${groqDuration}ms | Action: "${action}" | Emotion: "${parsed.emotion}"`);
+              console.log(`[🤖 CHAT REPLY] "${cleanReply}"`);
               return NextResponse.json({
-                reply: parsed.reply || rawContent,
+                reply: cleanReply,
                 action,
                 emotion: parsed.emotion || 'romantic',
                 source: 'groq',
                 model: modelToUse,
+                latencyMs: Date.now() - startTime,
               });
-            } catch (_) {
-              const action = extractActionFromText(rawContent, videoActions);
-              console.log(`[CHAT] JSON parse fallback, extracted action="${action}"`);
+            } catch (jsonErr) {
+              const cleanReply = rawContent.replace(/[*_~`]/g, '').trim();
+              const action = extractActionFromText(cleanReply, videoActions);
+              console.log(`[🤖 CHAT WARNING] JSON parse fallback, extracted action="${action}"`);
               return NextResponse.json({
-                reply: rawContent,
+                reply: cleanReply,
                 action,
                 emotion: 'romantic',
                 source: 'groq',
+                latencyMs: Date.now() - startTime,
               });
             }
           }
+        } else {
+          const errBody = await res.text();
+          console.warn(`[🤖 CHAT GROQ FAILED] Status: ${res.status}, Body: ${errBody}`);
         }
       } catch (err) {
-        console.error('Groq inference error:', err);
+        console.error('[🤖 CHAT GROQ ERROR]', err);
       }
     }
 
     // 2. Priority 2: Gemini API
     if (geminiKey) {
       try {
+        console.log(`[🤖 CHAT] Attempting Gemini fallback inference...`);
+        const geminiStart = Date.now();
         const geminiPrompt = `${fullSystemPrompt}\n\nUser: "${message}"\nResponse in JSON:`;
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
@@ -131,29 +154,34 @@ RESPONSE FORMAT (valid JSON only, nothing else):
           if (rawText) {
             const parsed = JSON.parse(rawText);
             const action = validateAction(parsed.action, videoActions, parsed.reply);
+            console.log(`[🤖 CHAT SUCCESS - GEMINI] Time: ${Date.now() - geminiStart}ms | Action: "${action}"`);
             return NextResponse.json({
               reply: parsed.reply,
               action,
               emotion: parsed.emotion || 'romantic',
               source: 'gemini',
+              latencyMs: Date.now() - startTime,
             });
           }
         }
       } catch (err) {
-        console.error('Gemini inference error:', err);
+        console.error('[🤖 CHAT GEMINI ERROR]', err);
       }
     }
 
     // 3. Fallback Contextual Response Engine
+    console.log(`[🤖 CHAT] Using local persona contextual response engine fallback...`);
     const fallbackResponse = generatePersonaResponse(persona, message, videoActions);
+    console.log(`[🤖 CHAT SUCCESS - LOCAL ENGINE] Action: "${fallbackResponse.action}"`);
     return NextResponse.json({
       reply: fallbackResponse.reply,
       action: fallbackResponse.action,
       emotion: fallbackResponse.emotion,
       source: 'engine',
+      latencyMs: Date.now() - startTime,
     });
   } catch (error) {
-    console.error('Virtual chat error:', error);
+    console.error('[🤖 CHAT FATAL ERROR]', error);
     return NextResponse.json({ error: 'Failed to process virtual chat message' }, { status: 500 });
   }
 }

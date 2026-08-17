@@ -19,6 +19,10 @@ import {
   FaClock,
   FaRedoAlt,
   FaUserFriends,
+  FaTerminal,
+  FaVolumeUp,
+  FaSyncAlt,
+  FaTrash,
 } from 'react-icons/fa';
 import { HiSparkles } from 'react-icons/hi2';
 import { Button, Input, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from '@nextui-org/react';
@@ -30,9 +34,11 @@ export default function VirtualVideoCallPage() {
   const persona = getPersonaById(params.personaId);
 
   const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
   const [typedMessage, setTypedMessage] = useState('');
   const userVideoRef = useRef<HTMLVideoElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const logScrollRef = useRef<HTMLDivElement>(null);
 
   const {
     callStatus,
@@ -48,10 +54,14 @@ export default function VirtualVideoCallPage() {
     localStream,
     avatarAction,
     outfit,
+    diagnosticLogs,
     triggerAction,
     cycleOutfit,
     toggleMic,
     toggleVideo,
+    forceRestartMic,
+    testAudioSynthesis,
+    clearDiagnosticLogs,
     endCall,
     sendUserMessage,
   } = useVirtualCall(
@@ -66,6 +76,7 @@ export default function VirtualVideoCallPage() {
       avatarImage: '',
       personality: '',
       interests: [],
+      languages: ['English'],
       greeting: 'Hello!',
       voiceStyle: { pitch: 1, rate: 1 },
       systemPrompt: '',
@@ -74,10 +85,14 @@ export default function VirtualVideoCallPage() {
     }
   );
 
-  // Attach local stream to user video element
+  // Attach local stream to user video element & STRICTLY MUTE to eliminate local audio feedback
   useEffect(() => {
-    if (userVideoRef.current && localStream) {
-      userVideoRef.current.srcObject = localStream;
+    if (userVideoRef.current) {
+      userVideoRef.current.muted = true;
+      userVideoRef.current.volume = 0;
+      if (localStream) {
+        userVideoRef.current.srcObject = localStream;
+      }
     }
   }, [localStream]);
 
@@ -87,6 +102,13 @@ export default function VirtualVideoCallPage() {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatHistory, isChatDrawerOpen]);
+
+  // Auto scroll diagnostics log drawer
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = 0;
+    }
+  }, [diagnosticLogs, isDiagnosticsOpen]);
 
   if (!persona) {
     return (
@@ -121,11 +143,11 @@ export default function VirtualVideoCallPage() {
   return (
     <div className="fixed inset-0 z-50 bg-black text-white flex flex-col overflow-hidden select-none">
       {/* ── TOP CALL HEADER ────────────────────────────────────────────────── */}
-      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
-        <div className="flex items-center gap-3">
+      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <button
             onClick={handleExitCall}
-            className="flex items-center gap-2 text-sm text-gray-300 hover:text-white bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md transition-colors cursor-pointer"
+            className="flex items-center gap-2 text-xs sm:text-sm text-gray-300 hover:text-white bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md transition-colors cursor-pointer"
           >
             <FaChevronLeft className="text-xs" />
             <span className="hidden sm:inline">Exit Call</span>
@@ -133,11 +155,36 @@ export default function VirtualVideoCallPage() {
 
           <div className="flex items-center gap-2 text-xs font-semibold bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
             <FaLock className="text-emerald-400 text-xs" />
-            <span className="text-gray-200">Encrypted 1-on-1 Call</span>
+            <span className="text-gray-200 hidden sm:inline">Encrypted 1-on-1 Call</span>
           </div>
+
+          {/* Languages Spoken Badge */}
+          {persona.languages && persona.languages.length > 0 && (
+            <div className="hidden md:flex items-center gap-1.5 text-xs font-semibold bg-purple-950/80 border border-purple-500/30 px-3 py-1.5 rounded-full backdrop-blur-md text-purple-200">
+              <span className="text-[10px] text-purple-400 font-bold uppercase">Speaks:</span>
+              <span className="text-white font-medium">{persona.languages.join(' · ')}</span>
+            </div>
+          )}
+
+          {/* Live Diagnostics HUD Toggle Button */}
+          <button
+            onClick={() => setIsDiagnosticsOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all backdrop-blur-md cursor-pointer border ${
+              isDiagnosticsOpen
+                ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/30'
+                : 'bg-white/10 text-amber-300 hover:bg-white/20 border-amber-500/30'
+            }`}
+            title="Open Live Pipeline Diagnostics & Debug Log"
+          >
+            <FaTerminal className="text-[11px]" />
+            <span>Diagnostics</span>
+            <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 text-amber-200">
+              {diagnosticLogs.length}
+            </span>
+          </button>
         </div>
 
-        {/* Live Call Duration */}
+        {/* Live Call Duration & Status */}
         <div className="flex items-center gap-2 bg-black/60 border border-white/10 px-3.5 py-1.5 rounded-full backdrop-blur-md text-xs font-mono font-bold text-pink-400">
           <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
           <span>{formatDuration(callDuration)}</span>
@@ -216,6 +263,148 @@ export default function VirtualVideoCallPage() {
             ))}
           </div>
         </div>
+
+        {/* ── LIVE DIAGNOSTICS & DEBUGGING HUD DRAWER ─────────────────────── */}
+        <AnimatePresence>
+          {isDiagnosticsOpen && (
+            <motion.div
+              initial={{ x: -400, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -400, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="absolute top-16 bottom-24 left-4 sm:left-8 z-40 w-84 sm:w-[420px] rounded-3xl bg-gray-950/95 backdrop-blur-2xl border border-amber-500/30 shadow-2xl flex flex-col overflow-hidden text-xs"
+            >
+              {/* Diagnostics Header */}
+              <div className="p-3.5 border-b border-white/10 flex items-center justify-between bg-black/40">
+                <div className="flex items-center gap-2">
+                  <FaTerminal className="text-amber-400 text-sm" />
+                  <h4 className="font-bold text-white text-sm">Pipeline Diagnostics</h4>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={clearDiagnosticLogs}
+                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white px-2 py-1 rounded bg-white/5"
+                    title="Clear Logs"
+                  >
+                    <FaTrash className="text-[10px]" />
+                    <span>Clear</span>
+                  </button>
+                  <button
+                    onClick={() => setIsDiagnosticsOpen(false)}
+                    className="text-gray-400 hover:text-white text-xs px-2 py-1 rounded-md bg-white/5"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Badges Matrix */}
+              <div className="p-3 bg-black/60 border-b border-white/10 grid grid-cols-3 gap-2 text-center text-[11px]">
+                <div className="p-2 rounded-xl bg-gray-900 border border-white/10 flex flex-col items-center">
+                  <span className="text-[10px] text-gray-400 uppercase font-semibold">Microphone</span>
+                  <span
+                    className={`font-bold mt-0.5 ${
+                      isMicMuted
+                        ? 'text-rose-400'
+                        : isListening
+                        ? 'text-emerald-400 animate-pulse'
+                        : 'text-gray-400'
+                    }`}
+                  >
+                    {isMicMuted ? 'Muted' : isListening ? 'Listening' : 'Paused'}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded-xl bg-gray-900 border border-white/10 flex flex-col items-center">
+                  <span className="text-[10px] text-gray-400 uppercase font-semibold">AI Brain</span>
+                  <span
+                    className={`font-bold mt-0.5 ${
+                      isProcessing ? 'text-amber-400 animate-bounce' : 'text-purple-400'
+                    }`}
+                  >
+                    {isProcessing ? 'Thinking...' : 'Ready'}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded-xl bg-gray-900 border border-white/10 flex flex-col items-center">
+                  <span className="text-[10px] text-gray-400 uppercase font-semibold">Companion TTS</span>
+                  <span
+                    className={`font-bold mt-0.5 ${
+                      isSpeaking ? 'text-pink-400 animate-pulse' : 'text-gray-400'
+                    }`}
+                  >
+                    {isSpeaking ? 'Speaking' : 'Silent'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="px-3 py-2 bg-black/30 border-b border-white/10 flex items-center justify-between gap-2">
+                <button
+                  onClick={forceRestartMic}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-300 font-semibold cursor-pointer text-[11px]"
+                >
+                  <FaSyncAlt className="text-[10px]" />
+                  <span>Restart Mic</span>
+                </button>
+
+                <button
+                  onClick={testAudioSynthesis}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-pink-600/30 hover:bg-pink-600/50 border border-pink-500/40 text-pink-300 font-semibold cursor-pointer text-[11px]"
+                >
+                  <FaVolumeUp className="text-[10px]" />
+                  <span>Test Voice</span>
+                </button>
+              </div>
+
+              {/* Live Log Stream */}
+              <div ref={logScrollRef} className="flex-grow p-3 overflow-y-auto space-y-1.5 font-mono text-[11px]">
+                {diagnosticLogs.length === 0 ? (
+                  <div className="text-center text-gray-500 py-8">
+                    No pipeline events recorded yet. Start speaking or interact to view live logs.
+                  </div>
+                ) : (
+                  diagnosticLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className={`p-2 rounded-lg border leading-tight ${
+                        log.level === 'error'
+                          ? 'bg-rose-950/40 border-rose-500/40 text-rose-200'
+                          : log.level === 'warn'
+                          ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                          : log.level === 'success'
+                          ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                          : 'bg-gray-900/80 border-white/5 text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                            log.category === 'STT'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : log.category === 'AI'
+                              ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                              : log.category === 'TTS'
+                              ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+                              : log.category === 'AVATAR'
+                              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              : log.category === 'ECHO'
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                          }`}
+                        >
+                          {log.category}
+                        </span>
+                        <span className="text-[9px] text-gray-500">{log.timestamp}</span>
+                      </div>
+                      <p className="break-words font-sans text-xs">{log.message}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── IN-CALL CHAT DRAWER ───────────────────────────────────────────── */}
         <AnimatePresence>
