@@ -94,10 +94,12 @@ LANGUAGE & EMPATHY RULES:
 4. Keep responses to 2-3 short conversational sentences.
 5. NEVER repeat greetings or "namaste" multiple times in the middle of a call. Once the introduction is done, talk naturally about your life, art, feelings, and get to know the user.`;
 
-    const videoDir = path.join(process.cwd(), 'public', 'videos', id);
-    if (!fs.existsSync(videoDir)) {
-      fs.mkdirSync(videoDir, { recursive: true });
-    }
+    try {
+      const videoDir = path.join(process.cwd(), 'public', 'videos', id);
+      if (!fs.existsSync(videoDir)) {
+        fs.mkdirSync(videoDir, { recursive: true });
+      }
+    } catch (_) {}
 
     const isMan = gender === 'man';
 

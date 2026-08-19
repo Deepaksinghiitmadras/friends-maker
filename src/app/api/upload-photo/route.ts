@@ -18,18 +18,34 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const base64Str = `data:${file.type};base64,${buffer.toString('base64')}`;
+    const base64Str = `data:${file.type || 'image/jpeg'};base64,${buffer.toString('base64')}`;
 
-    const uploadResult = await cloudinary.v2.uploader.upload(base64Str, {
-      folder: 'truefriends/members',
-      transformation: [{ width: 800, height: 800, crop: 'limit', quality: 'auto' }],
-    });
+    let imageUrl = base64Str;
+    let publicId: string | null = `photo_${Date.now()}`;
 
-    if (!uploadResult || !uploadResult.secure_url) {
-      throw new Error('Cloudinary upload failed');
+    // Try Cloudinary if available
+    const hasCloudinary =
+      process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME &&
+      process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY &&
+      process.env.CLOUDINARY_API_SECRET;
+
+    if (hasCloudinary) {
+      try {
+        const uploadResult = await cloudinary.v2.uploader.upload(base64Str, {
+          folder: 'truefriends/members',
+          transformation: [{ width: 800, height: 800, crop: 'limit', quality: 'auto' }],
+        });
+
+        if (uploadResult && uploadResult.secure_url) {
+          imageUrl = uploadResult.secure_url;
+          publicId = uploadResult.public_id;
+        }
+      } catch (cloudErr: any) {
+        console.warn('[📸 CLOUDINARY UPLOAD WARNING] Cloudinary failed, falling back to direct DB storage:', cloudErr.message);
+      }
     }
 
-    // Add photo to member in database
+    // Save directly to PostgreSQL database via Prisma
     const member = await prisma.member.findUnique({
       where: { userId: session.user.id },
     });
@@ -38,35 +54,35 @@ export async function POST(req: NextRequest) {
       const isFirstPhoto = !member.image;
       const newPhoto = await prisma.photo.create({
         data: {
-          url: uploadResult.secure_url,
-          publicId: uploadResult.public_id,
+          url: imageUrl,
+          publicId: publicId,
           memberId: member.id,
-          isApproved: true, // auto approve user uploaded member photo
+          isApproved: true,
         },
       });
 
       if (isFirstPhoto) {
         await prisma.member.update({
           where: { id: member.id },
-          data: { image: uploadResult.secure_url },
+          data: { image: imageUrl },
         });
         await prisma.user.update({
           where: { id: session.user.id },
-          data: { image: uploadResult.secure_url },
+          data: { image: imageUrl },
         });
       }
 
       return NextResponse.json({
         success: true,
         photo: newPhoto,
-        url: uploadResult.secure_url,
+        url: imageUrl,
       });
     }
 
     return NextResponse.json({
       success: true,
-      url: uploadResult.secure_url,
-      publicId: uploadResult.public_id,
+      url: imageUrl,
+      publicId,
     });
   } catch (error: any) {
     console.error('[📸 MEMBER PHOTO UPLOAD ERROR]', error);

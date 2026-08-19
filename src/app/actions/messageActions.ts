@@ -87,7 +87,11 @@ export async function getMessageThread(recipientId: string) {
 
             readCount = unreadMessageIds.length;
 
-            await pusherServer.trigger(createChatId(recipientId, userId), 'messages:read', unreadMessageIds);
+            try {
+                await pusherServer.trigger(createChatId(recipientId, userId), 'messages:read', unreadMessageIds);
+            } catch (pusherErr) {
+                console.warn('[PUSHER READ EMIT WARNING]', pusherErr);
+            }
         }
 
         return { messages: messages.map(message => mapMessageToMessageDto(message)), readCount }

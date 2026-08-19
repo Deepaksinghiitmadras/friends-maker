@@ -9,7 +9,7 @@ export default auth((req) => {
     const { nextUrl } = req;
     const isLoggedIn = !!req.auth;
 
-    const isPublic = publicRoutes.includes(nextUrl.pathname) || nextUrl.pathname.startsWith('/virtual');
+    const isPublic = publicRoutes.includes(nextUrl.pathname);
     const isAuthRoute = authRoutes.includes(nextUrl.pathname);
     const isProfileComplete = (req.auth?.user as any)?.profileComplete;
     const isAdmin = (req.auth?.user as any)?.role === 'ADMIN';
@@ -25,10 +25,6 @@ export default auth((req) => {
         return NextResponse.next();
     }
 
-    if (isPublic || isAdmin) {
-        return NextResponse.next();
-    }
-
     if (isAuthRoute) {
         if (isLoggedIn) {
             if (isAdmin) {
@@ -40,7 +36,7 @@ export default auth((req) => {
     }
 
     if (!isPublic && !isLoggedIn) {
-        return NextResponse.redirect(new URL('/login', nextUrl))
+        return NextResponse.redirect(new URL(`/login?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
     }
 
     if (isLoggedIn && !isProfileComplete && nextUrl.pathname !== '/complete-profile') {
@@ -51,9 +47,11 @@ export default auth((req) => {
 })
 
 /**
- * This is a regular expression that will match any URL path 
- * that does not start with /api, /_next/static, /_next/image, or favicon.ico.
+ * Match all request paths except for:
+ * - API routes (/api/*)
+ * - Next.js internal static assets (_next/static, _next/image)
+ * - Static public files (manifest.json, sw.js, favicon.ico, images, videos)
  */
 export const config = {
-    matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)']
+    matcher: ['/((?!api|_next/static|_next/image|images|videos|manifest.json|sw.js|favicon.ico).*)']
 }

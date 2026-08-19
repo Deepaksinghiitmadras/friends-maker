@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { updateCustomPersonaStatus, loadCustomPersonasFromFile } from '@/lib/customPersonasStore';
+import { updateCustomPersona, loadCustomPersonasAsync } from '@/lib/customPersonasStore';
 import { sendUserCompanionReadyEmail } from '@/lib/mail';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(req: NextRequest) {
   try {
@@ -26,29 +27,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const videoDir = path.join(process.cwd(), 'public', 'videos', personaId);
-    if (!fs.existsSync(videoDir)) {
-      fs.mkdirSync(videoDir, { recursive: true });
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const videoDataUrl = `data:video/mp4;base64,${buffer.toString('base64')}`;
+    let videoUrl = videoDataUrl;
+
+    // 1. Try local filesystem if writable (local dev)
+    try {
+      const videoDir = path.join(process.cwd(), 'public', 'videos', personaId);
+      if (!fs.existsSync(videoDir)) {
+        fs.mkdirSync(videoDir, { recursive: true });
+      }
+      const targetFile = path.join(videoDir, `${videoType}.mp4`);
+      fs.writeFileSync(targetFile, buffer);
+      videoUrl = `/videos/${personaId}/${videoType}.mp4?t=${Date.now()}`;
+      console.log(`[🎬 ADMIN VIDEO UPLOAD] Saved ${videoType}.mp4 (${buffer.length} bytes) to local disk for "${personaId}"`);
+    } catch (fsErr: any) {
+      console.log(`[🎬 ADMIN VIDEO UPLOAD] Local disk read-only (Vercel). Storing video in database directly.`);
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const targetFile = path.join(videoDir, `${videoType}.mp4`);
+    // 2. Fetch existing persona from database
+    const existingPersona = await prisma.customPersona.findUnique({
+      where: { id: personaId },
+    });
 
-    fs.writeFileSync(targetFile, buffer);
-    console.log(`[🎬 ADMIN VIDEO UPLOAD] Saved ${videoType}.mp4 (${buffer.length} bytes) for "${personaId}"`);
+    const currentClips: any = existingPersona?.videoClips || {
+      idle: `/videos/${personaId}/idle.mp4`,
+      speaking: `/videos/${personaId}/speaking.mp4`,
+    };
 
-    // Check if both idle and speaking exist
-    const idleExists = fs.existsSync(path.join(videoDir, 'idle.mp4'));
-    const speakExists = fs.existsSync(path.join(videoDir, 'speaking.mp4'));
-    const isNowReady = markReady || (idleExists && speakExists);
+    currentClips[videoType] = videoUrl;
+
+    const hasIdle = currentClips.idle && (currentClips.idle.startsWith('data:') || currentClips.idle.includes('/videos/'));
+    const hasSpeaking = currentClips.speaking && (currentClips.speaking.startsWith('data:') || currentClips.speaking.includes('/videos/'));
+    const isNowReady = markReady || (hasIdle && hasSpeaking);
+
+    await updateCustomPersona(personaId, {
+      videoClips: currentClips,
+      status: isNowReady ? 'ready' : (existingPersona?.status as any) || 'generating',
+    });
+
+    console.log(`[🎬 ADMIN VIDEO UPLOAD] Updated videoClips for "${personaId}". Ready: ${isNowReady}`);
 
     if (isNowReady) {
-      updateCustomPersonaStatus(personaId, 'ready');
-      console.log(`[🎬 ADMIN VIDEO UPLOAD] Marked "${personaId}" status as READY!`);
-
       // 📧 Send User Notification Email that companion is ready for video call
       try {
-        const personas = loadCustomPersonasFromFile();
+        const personas = await loadCustomPersonasAsync();
         const persona = personas.find((p) => p.id === personaId);
         if (persona && persona.userEmail && !persona.userEmail.includes('anonymous')) {
           sendUserCompanionReadyEmail({
@@ -66,7 +89,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: `Successfully uploaded ${videoType}.mp4 (${Math.round(buffer.length / 1024)} KB)`,
-      videoUrl: `/videos/${personaId}/${videoType}.mp4?t=${Date.now()}`,
+      videoUrl: videoUrl.startsWith('data:') ? 'Saved in Database' : videoUrl,
       isReady: isNowReady,
     });
   } catch (error: any) {

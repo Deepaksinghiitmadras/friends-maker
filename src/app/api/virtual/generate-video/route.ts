@@ -167,9 +167,11 @@ export async function POST(req: NextRequest) {
 
     const availableKeys = getGeminiApiKeys();
     const videoDir = path.join(process.cwd(), 'public', 'videos', personaId);
-    if (!fs.existsSync(videoDir)) {
-      fs.mkdirSync(videoDir, { recursive: true });
-    }
+    try {
+      if (!fs.existsSync(videoDir)) {
+        fs.mkdirSync(videoDir, { recursive: true });
+      }
+    } catch (_) {}
 
     const idlePath = path.join(videoDir, 'idle.mp4');
     const speakPath = path.join(videoDir, 'speaking.mp4');
