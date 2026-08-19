@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPersonaById, getAvailableVideoActions, VirtualPersona } from '@/lib/virtualPersonas';
+import { getAllPersonasAsync } from '@/lib/customPersonasStore';
+import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -9,170 +12,252 @@ interface ChatMessage {
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
   try {
+    const session = await auth();
+    const currentUserId = session?.user?.id || 'guest_user';
+
     const { personaId, message, conversationHistory } = await req.json();
 
     console.log(`\n================== [🤖 VIRTUAL CHAT INCOMING] ==================`);
-    console.log(`[🤖 CHAT] Persona: "${personaId}" | Message: "${message}"`);
+    console.log(`[🤖 CHAT] Persona: "${personaId}" | User: "${currentUserId}" | Message: "${message}"`);
     console.log(`[🤖 CHAT] History Length: ${conversationHistory?.length || 0} messages`);
 
-    const persona = getPersonaById(personaId);
+    // 1. Resolve Persona from PostgreSQL database & local registry
+    const allPersonas = await getAllPersonasAsync();
+    let persona = allPersonas.find((p) => p.id === personaId) || getPersonaById(personaId);
+
     if (!persona) {
-      console.error(`[🤖 CHAT ERROR] Persona "${personaId}" not found`);
-      return NextResponse.json({ error: 'Persona not found' }, { status: 404 });
+      // Create fallback persona definition so conversation never drops
+      persona = {
+        id: personaId,
+        name: personaId.charAt(0).toUpperCase() + personaId.slice(1).replace(/-/g, ' '),
+        age: 26,
+        gender: 'man',
+        title: 'Companion',
+        location: 'Mumbai / Delhi',
+        tagline: 'Here to listen and talk with warmth',
+        avatarImage: '/images/custom_user_companion.jpeg',
+        personality: 'Friendly, empathetic listener, speaks natural Hindi and English.',
+        interests: ['Chai', 'Music', 'Heart-to-heart talks'],
+        languages: ['Hindi', 'English', 'Hinglish'],
+        greeting: 'Namaste! Main hamesha aapke saath hoon.',
+        voiceStyle: { pitch: 0.92, rate: 1.0 },
+        systemPrompt: `You are a friendly and warm companion on TrueFriends video call. Reply naturally in casual Hindi or English with genuine empathy.`,
+        traits: { warmth: 95, humor: 90, intellect: 90, energy: 90 },
+        sampleQuestions: [],
+      };
     }
 
-    // Collect all available Groq API keys for automatic failover
+    // 2. Fetch Long-Term Memories ("Yaadein") for this user & persona
+    let memoryContext = '';
+    try {
+      if (currentUserId && currentUserId !== 'guest_user') {
+        const memories = await prisma.companionMemory.findMany({
+          where: { userId: currentUserId, personaId },
+          orderBy: { importance: 'desc' },
+          take: 8,
+        });
+
+        if (memories && memories.length > 0) {
+          memoryContext = `\nLONG-TERM MEMORY ("YAADEIN" - Things you remember about this user):\n` +
+            memories.map((m) => `- ${m.memoryText}`).join('\n') +
+            `\nRule: Naturally reference these memories when relevant to show that you remember and care about them.\n`;
+        }
+      }
+    } catch (memErr) {
+      console.warn('[🧠 YAADEIN] Memory fetch warning:', memErr);
+    }
+
+    // 3. Collect LLM API Keys (Groq & Gemini)
     const groqKeys: string[] = [];
     if (process.env.GROQ_API_KEY) groqKeys.push(process.env.GROQ_API_KEY);
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 5; i++) {
       const key = process.env[`GROQ_API_KEY${i}`];
       if (key && !groqKeys.includes(key)) groqKeys.push(key);
     }
-    if (process.env.GROQ_API_KEYS) {
-      const split = process.env.GROQ_API_KEYS.split(',').map((k) => k.trim()).filter(Boolean);
-      for (const k of split) {
-        if (!groqKeys.includes(k)) groqKeys.push(k);
-      }
+
+    const geminiKeys: string[] = [];
+    if (process.env.GEMINI_API_KEY) geminiKeys.push(process.env.GEMINI_API_KEY);
+    for (let i = 1; i <= 5; i++) {
+      const key = process.env[`GEMINI_API_KEY${i}`];
+      if (key && !geminiKeys.includes(key)) geminiKeys.push(key);
     }
 
-    const modelToUse = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    const groqModels = [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768',
+      'gemma2-9b-it',
+    ];
 
-    // Get actual available video file names from persona config
     const videoActions = getAvailableVideoActions(persona);
-    console.log(`[🤖 CHAT] Available video actions: [${videoActions.join(', ')}]`);
-    console.log(`[🤖 CHAT] Loaded ${groqKeys.length} Groq API key(s) in failover pool`);
 
-    // Build the action instruction with explicit video file → trigger mapping
     const actionInstructions = `
-EMPATHY & CONVERSATION RULES (CRITICAL):
-1. UNDERSTAND USER'S PURPOSE & EMOTIONAL STATE:
-   - "Mann Ki Baat" / Venting / Loneliness: If the user is tired, stressed, feeling lonely, sharing personal problems, or seeking comfort, be deeply empathetic and gentle. Validate their emotions (e.g. "Main samajh sakti hoon, kabhi kabhi dil halka karna zaroori hota hai... main hamesha yahin hoon aapke liye").
-   - Romance / Dating: If the user is flirty, playful, or charming, respond with sweet romantic banter, blushes, and warmth.
-   - Deep Philosophy / Curiosity: If the user asks deep questions, engage thoughtfully.
-2. CONTEXT AWARENESS: You are provided with the recent conversation history. Actively reference previous things the user shared in this call so the date feels real and continuous.
-3. LANGUAGE MATCHING: Match the user's language seamlessly (Hindi, English, Hinglish, or any regional/foreign language).
+${memoryContext}
+EMPATHY & CONVERSATION RULES:
+1. UNDERSTAND USER'S EMOTIONAL STATE:
+   - If user is talking casually, replying to your questions, or asking about you, reply warmly in 2-3 short, engaging sentences.
+   - If user is feeling lonely, stressed, tired, or sharing personal feelings ("Mann Ki Baat"), listen deeply and validate their feelings.
+2. LANGUAGE MATCHING:
+   - If user speaks Hindi / Hinglish (e.g. "kaisa hai", "video dali thi", "kya kar rahe ho"), respond in natural, friendly conversational Hindi/Hinglish (e.g. "Haan main samajh gaya...", "Aap batao, kaisa chal raha hai?").
+   - If user speaks English, respond in charismatic, friendly English.
+3. NEVER REPEAT STATIC REPLIES. Every response must directly answer and build upon what the user just said.
 
-VIDEO ACTION SYSTEM:
-You have access to pre-recorded video clips. For EVERY response, pick the single best-matching video action.
+VIDEO ACTIONS: [${videoActions.map((a) => `"${a}"`).join(', ')}]
+Choose one: standing, coffee, kiss, laugh, blush, cheers, lean_in, thinking, cozy, wave, workout, speaking, idle.
 
-AVAILABLE VIDEO FILES: [${videoActions.map(a => `"${a}"`).join(', ')}]
+RESPONSE FORMAT (JSON only):
+{"reply": "Your 2-3 sentence conversational response", "action": "action_from_list", "emotion": "happy|empathetic|romantic|thoughtful|playful", "memory_to_save": "Optional key fact to remember about user or empty"}`;
 
-ACTION SELECTION RULES (check in order, pick FIRST match):
-- User asks to see outfit / stand up / full body / dress / what you wearing → "standing"
-- User or you mentions coffee / chai / tea / drink / sip / brew → "coffee"  
-- User or you mentions kiss / love you / mwah / blow kiss / pyaar / cute → "kiss"
-- User makes a joke / you laugh / haha / funny / hilarious → "laugh"
-- User gives a sweet compliment / flattery / you get shy / blush → "blush"
-- User or you mentions wine / toast / cheers / celebrate / champagne → "cheers"
-- User shares deep feelings / needs comfort / you listen closely / intimacy → "lean_in"
-- User asks deep/thoughtful question / you need to think / ponder → "thinking"
-- User mentions cozy / sleepy / yawn / late night / cold → "cozy"
-- User explicitly says goodbye / bye / wave / waves → "wave"
-- User mentions gym / workout / exercise / stretch / fitness → "workout"
-- Default for all regular conversation, empathetic listening, or talking → "speaking"
-- Last resort → "idle"
+    const fullSystemPrompt = `${persona.systemPrompt || ''}\n\n${actionInstructions}`;
 
-RESPONSE FORMAT (valid JSON only, nothing else):
-{"reply": "Your 2-3 sentence warm empathetic or dating response", "action": "one_action_from_list_above", "emotion": "romantic|playful|happy|thoughtful|empathetic"}`;
-
-    const fullSystemPrompt = `${persona.systemPrompt}\n\n${actionInstructions}`;
-
-    // 1. Priority 1: Groq High-Speed Inference with Automatic Multi-Key Failover
-    if (groqKeys.length > 0) {
-      const messages: ChatMessage[] = [
-        { role: 'system', content: fullSystemPrompt },
-        ...(conversationHistory || []).slice(-16),
-        { role: 'user', content: message },
-      ];
-
-      for (let keyIndex = 0; keyIndex < groqKeys.length; keyIndex++) {
-        const currentKey = groqKeys[keyIndex];
-        const keyMasked = `${currentKey.slice(0, 6)}...${currentKey.slice(-4)}`;
+    // ── STEP 1: GROQ INFERENCE WITH MULTI-MODEL / MULTI-KEY FAILOVER ───────────
+    for (const key of groqKeys) {
+      for (const model of groqModels) {
         try {
-          console.log(`[🤖 CHAT] Attempting Groq inference with key #${keyIndex + 1} (${keyMasked}) and model "${modelToUse}"...`);
-          const groqStart = Date.now();
           const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${currentKey}`,
+              Authorization: `Bearer ${key}`,
             },
             body: JSON.stringify({
-              model: modelToUse,
-              messages,
-              temperature: 0.8,
-              max_completion_tokens: 1000,
+              model,
+              messages: [
+                { role: 'system', content: fullSystemPrompt },
+                ...(conversationHistory || []).slice(-12),
+                { role: 'user', content: message },
+              ],
+              temperature: 0.85,
+              max_completion_tokens: 400,
               response_format: { type: 'json_object' },
             }),
           });
-
-          const groqDuration = Date.now() - groqStart;
 
           if (res.ok) {
             const data = await res.json();
             let rawContent = data.choices?.[0]?.message?.content?.trim();
             if (rawContent) {
               rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-              try {
-                const parsed = JSON.parse(rawContent);
-                const cleanReply = (parsed.reply || rawContent).replace(/[*_~`]/g, '').trim();
-                const action = validateAction(parsed.action, videoActions, cleanReply);
-                console.log(`[🤖 CHAT SUCCESS - GROQ (Key #${keyIndex + 1})] Time: ${groqDuration}ms | Action: "${action}" | Emotion: "${parsed.emotion}"`);
-                return NextResponse.json({
-                  reply: cleanReply,
-                  action,
-                  emotion: parsed.emotion || 'romantic',
-                  source: `groq-key-${keyIndex + 1}`,
-                  model: modelToUse,
-                  latencyMs: Date.now() - startTime,
-                });
-              } catch (jsonErr) {
-                const cleanReply = rawContent.replace(/[*_~`]/g, '').trim();
-                const action = extractActionFromText(cleanReply, videoActions);
-                return NextResponse.json({
-                  reply: cleanReply,
-                  action,
-                  emotion: 'romantic',
-                  source: `groq-key-${keyIndex + 1}`,
-                  latencyMs: Date.now() - startTime,
-                });
+              const parsed = JSON.parse(rawContent);
+              const cleanReply = (parsed.reply || rawContent).replace(/[*_~`#]/g, '').trim();
+              const action = validateAction(parsed.action, videoActions, cleanReply);
+
+              // Asynchronously save memory if detected
+              if (parsed.memory_to_save && currentUserId && currentUserId !== 'guest_user') {
+                saveMemoryAsync(currentUserId, personaId, parsed.memory_to_save);
               }
-            }
-          } else {
-            const errBody = await res.text();
-            console.warn(`[🤖 CHAT GROQ WARNING] Key #${keyIndex + 1} failed (Status: ${res.status}). Body: ${errBody}`);
-            // If rate limited (429) or unauthorized (401) or other, try next key in pool
-            if (keyIndex < groqKeys.length - 1) {
-              console.log(`[🤖 CHAT] Switching to fallback key #${keyIndex + 2}...`);
-              continue;
+
+              console.log(`[🤖 CHAT SUCCESS - GROQ (${model})] Reply: "${cleanReply.slice(0, 50)}..."`);
+              return NextResponse.json({
+                reply: cleanReply,
+                action,
+                emotion: parsed.emotion || 'happy',
+                source: `groq-${model}`,
+                latencyMs: Date.now() - startTime,
+              });
             }
           }
-        } catch (err) {
-          console.error(`[🤖 CHAT GROQ ERROR] Key #${keyIndex + 1} threw error:`, err);
-          if (keyIndex < groqKeys.length - 1) {
-            console.log(`[🤖 CHAT] Switching to fallback key #${keyIndex + 2}...`);
-            continue;
-          }
+        } catch (groqErr) {
+          // Try next model/key
         }
       }
     }
 
-    // 2. Local Contextual Response Engine
-    console.log('[🤖 CHAT] Using local persona contextual response engine fallback...');
-    const local = generatePersonaResponse(persona, message, videoActions);
-    console.log(`[🤖 CHAT SUCCESS - LOCAL ENGINE] Action: "${local.action}"`);
+    // ── STEP 2: GEMINI API INFERENCE ───────────────────────────────────────────
+    for (const gKey of geminiKeys) {
+      try {
+        const geminiRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${gKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: `${fullSystemPrompt}\n\nRecent Conversation:\n${JSON.stringify(
+                        (conversationHistory || []).slice(-8)
+                      )}\n\nUser just said: "${message}"\n\nReturn JSON only.`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                temperature: 0.85,
+              },
+            }),
+          }
+        );
+
+        if (geminiRes.ok) {
+          const gData = await geminiRes.json();
+          const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
+            const cleanReply = (parsed.reply || rawText).replace(/[*_~`#]/g, '').trim();
+            const action = validateAction(parsed.action, videoActions, cleanReply);
+
+            if (parsed.memory_to_save && currentUserId && currentUserId !== 'guest_user') {
+              saveMemoryAsync(currentUserId, personaId, parsed.memory_to_save);
+            }
+
+            console.log(`[🤖 CHAT SUCCESS - GEMINI] Reply: "${cleanReply.slice(0, 50)}..."`);
+            return NextResponse.json({
+              reply: cleanReply,
+              action,
+              emotion: parsed.emotion || 'happy',
+              source: 'gemini-1.5-flash',
+              latencyMs: Date.now() - startTime,
+            });
+          }
+        }
+      } catch (gemErr) {
+        // Try next key
+      }
+    }
+
+    // ── STEP 3: CONTEXTUAL DYNAMIC FALLBACK (NEVER MONOTONOUS) ──────────────────
+    console.log('[🤖 CHAT] Using dynamic conversational engine fallback...');
+    const local = generateDynamicPersonaResponse(persona, message, videoActions);
 
     return NextResponse.json({
       reply: local.reply,
       action: local.action,
       emotion: local.emotion,
-      source: 'engine',
+      source: 'dynamic-engine',
       latencyMs: Date.now() - startTime,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[🤖 CHAT FATAL ERROR]', error);
-    return NextResponse.json({ error: 'Failed to process virtual chat message' }, { status: 500 });
+    return NextResponse.json(
+      {
+        reply: "Main sun raha hoon aapki baat! Aap bataiye, dil ki aur kya baat chal rahi hai?",
+        action: 'speaking',
+        emotion: 'thoughtful',
+        source: 'safe-fallback',
+      },
+      { status: 200 }
+    );
   }
+}
+
+async function saveMemoryAsync(userId: string, personaId: string, memoryText: string) {
+  try {
+    if (!memoryText || memoryText.length < 5) return;
+    await prisma.companionMemory.create({
+      data: {
+        userId,
+        personaId,
+        memoryText: memoryText.slice(0, 300),
+        category: 'conversation',
+        importance: 3,
+      },
+    });
+    console.log(`[🧠 YAADEIN SAVED] "${memoryText.slice(0, 60)}" for user ${userId}`);
+  } catch (_) {}
 }
 
 function validateAction(aiAction: string | undefined, videoActions: string[], replyText: string): string {
@@ -184,21 +269,20 @@ function validateAction(aiAction: string | undefined, videoActions: string[], re
 
 function extractActionFromText(text: string, videoActions: string[]): string {
   const lower = text.toLowerCase();
-  
   const rules: [string[], string][] = [
-    [['stand', 'outfit', 'dress', 'full body', 'what.*wearing', 'show me'], 'standing'],
-    [['coffee', 'chai', 'tea', 'drink', 'brew', 'sip'], 'coffee'],
-    [['kiss', 'mwah', 'love you', 'pyaar', 'blow', 'cute'], 'kiss'],
-    [['laugh', 'haha', 'funny', 'hilarious', 'lol', 'joke'], 'laugh'],
-    [['blush', 'shy', 'flatter', 'compliment', 'sweet of you', 'sundar', 'khoobsurat'], 'blush'],
-    [['wine', 'toast', 'cheers', 'champagne', 'celebrate'], 'cheers'],
-    [['think', 'hmm', 'ponder', 'curious', 'wonder', 'soch'], 'thinking'],
-    [['lean', 'closer', 'whisper', 'secret', 'intimate', 'paas'], 'lean_in'],
-    [['cozy', 'sleepy', 'yawn', 'cold', 'snuggle', 'sweater'], 'cozy'],
-    [['wave', 'bye', 'goodbye', 'alvida', 'tata'], 'wave'],
-    [['workout', 'exercise', 'stretch', 'fitness', 'gym'], 'workout'],
+    [['stand', 'outfit', 'dress', 'full body', 'kapde'], 'standing'],
+    [['coffee', 'chai', 'tea', 'drink', 'sip'], 'coffee'],
+    [['kiss', 'mwah', 'love you', 'pyaar', 'sweet'], 'kiss'],
+    [['laugh', 'haha', 'funny', 'hilarious', 'joke'], 'laugh'],
+    [['blush', 'shy', 'flatter', 'sundar', 'khoobsurat'], 'blush'],
+    [['wine', 'toast', 'cheers', 'celebrate'], 'cheers'],
+    [['think', 'hmm', 'soch', 'wonder'], 'thinking'],
+    [['lean', 'closer', 'secret', 'paas'], 'lean_in'],
+    [['cozy', 'sleepy', 'yawn', 'night'], 'cozy'],
+    [['wave', 'bye', 'goodbye', 'alvida'], 'wave'],
+    [['workout', 'gym', 'exercise'], 'workout'],
   ];
-  
+
   for (const [keywords, action] of rules) {
     if (videoActions.includes(action)) {
       for (const kw of keywords) {
@@ -206,62 +290,80 @@ function extractActionFromText(text: string, videoActions: string[]): string {
       }
     }
   }
-  
+
   return videoActions.includes('speaking') ? 'speaking' : 'idle';
 }
 
-function generatePersonaResponse(
+function generateDynamicPersonaResponse(
   persona: VirtualPersona,
   userText: string,
   videoActions: string[]
 ): { reply: string; action: string; emotion: string } {
   const text = userText.toLowerCase().trim();
+  const name = persona.name;
+  const isMan = persona.gender === 'man';
 
-  if (text.includes('outfit') || text.includes('dress') || text.includes('stand') || text.includes('show') || text.includes('kapde')) {
+  if (text.includes('video') || text.includes('dali') || text.includes('dalni') || text.includes('upload')) {
     return {
-      reply: persona.id === 'ananya-sharma'
-        ? "Bilkul! Main khadi hoke apna pura traditional outfit dikhati hoon. Batana kaisa lag raha hai!"
-        : "I would love to! Let me stand up and show you my outfit from head to toe. What do you think?",
-      action: videoActions.includes('standing') ? 'standing' : 'speaking',
-      emotion: 'playful',
+      reply: isMan
+        ? `Arey koi baat nahi yaar! Video ek dali ho ya do, sab smoothly chalega. Aap batao, video mein kaisa laga?`
+        : `Arey koi fikar mat karo! Video bilkul sahi upload ho jayegi. Aap bataiye, aaj ka din kaisa chal raha hai?`,
+      action: videoActions.includes('speaking') ? 'speaking' : 'idle',
+      emotion: 'empathetic',
     };
   }
 
-  if (text.includes('coffee') || text.includes('chai') || text.includes('tea') || text.includes('drink')) {
+  if (text.includes('hi') || text.includes('hello') || text.includes('hey') || text.includes('namaste')) {
     return {
-      reply: persona.id === 'ananya-sharma'
-        ? "Arey perfect! Ek garma-garam masala chai ka sip leke baat karne ka maza hi alag hai. Cheers humari video date ke naam!"
-        : "I love that idea! *takes a warm sip of coffee* Mmm, nothing beats a warm drink and great conversation with you.",
+      reply: isMan
+        ? `Hey! Main ${name} hoon, aapse milkar sach mein din ban gaya. Aap batao, kya chal raha hai aajkal?`
+        : `Namaste! Main ${name} hoon. Aapse video call par baat karke kitna accha lag raha hai! Aap bataiye, sab kaisa hai?`,
+      action: videoActions.includes('wave') ? 'wave' : 'speaking',
+      emotion: 'happy',
+    };
+  }
+
+  if (text.includes('what are you doing') || text.includes('kya kar rahe') || text.includes('kya chal raha')) {
+    return {
+      reply: isMan
+        ? `Bas aapse live baat kar raha hoon aur coffee ka maza le raha hoon! Aapke din mein kya khaas hua aaj?`
+        : `Bas aapka hi wait kar rahi thi! Chai ka cup haath mein hai aur aapse baat karne ka alag hi maza hai. Aap batao?`,
       action: videoActions.includes('coffee') ? 'coffee' : 'speaking',
       emotion: 'happy',
     };
   }
 
-  if (text.includes('sundar') || text.includes('khoobsurat') || text.includes('beautiful') || text.includes('gorgeous') || text.includes('pretty') || text.includes('cute')) {
+  if (text.includes('kaisa') || text.includes('kaisi') || text.includes('how are you')) {
     return {
-      reply: persona.id === 'ananya-sharma'
-        ? "Arey shukriya! Aapne toh mujhe sach mein blush karwa diya. Waise aap bhi video par bahut handsome lag rahe ho!"
-        : "Aww, you're making me blush! You're looking exceptionally handsome today too.",
-      action: videoActions.includes('blush') ? 'blush' : 'speaking',
-      emotion: 'romantic',
+      reply: isMan
+        ? `Main bilkul badhiya hoon, aapki aawaz sunke aur bhi accha ho gaya! Aap bataiye, aapka din kaisa guzra?`
+        : `Main bahut khush hoon aapse milkar! Aap bataiye, aaj kuch naya ya interesting hua aapke saath?`,
+      action: videoActions.includes('speaking') ? 'speaking' : 'idle',
+      emotion: 'happy',
     };
   }
 
-  if (text.includes('kiss') || text.includes('love') || text.includes('pyaar') || text.includes('sweet')) {
+  if (text.includes('chai') || text.includes('coffee') || text.includes('drink')) {
     return {
-      reply: persona.id === 'ananya-sharma'
-        ? "Aapke saath baat karke mera dil khush ho gaya! Ye chhota sa sweet flying kiss sirf aapke liye."
-        : "You're making my heart beat a little faster! *leans in and blows a sweet kiss* That's just for you.",
-      action: videoActions.includes('kiss') ? 'kiss' : 'speaking',
-      emotion: 'romantic',
+      reply: isMan
+        ? `Garma-garam chai/coffee ke bina toh din hi adhoora hai! Ek virtual sip humari dosti ke naam.`
+        : `Arey waah! Chalo saath mein chai/coffee enjoy karte hain. Cheers humari is video date ke naam!`,
+      action: videoActions.includes('coffee') ? 'coffee' : 'speaking',
+      emotion: 'happy',
     };
   }
+
+  // General conversational dynamic response
+  const genericReplies = [
+    `Main dhyan se sun raha hoon aapki baat. Aap bilkul khul ke batao, dil mein aur kya chal raha hai?`,
+    `Aapse baat karke sach mein bahut sukoon mil raha hai. Aur bataiye apne baare mein!`,
+    `Aapka vibe bahut genuine aur accha hai. Is baare mein aur detail mein batao na!`,
+  ];
+  const chosen = genericReplies[Math.floor(Math.random() * genericReplies.length)];
 
   return {
-    reply: persona.id === 'ananya-sharma'
-      ? "Aapse baat karke bahut accha lag raha hai! Aur bataiye, aapke shauk kya hain? Mujhe aapke baare mein aur jaan-na hai."
-      : "You have such a genuine vibe. Tell me more, I'm completely listening!",
-    action: 'speaking',
+    reply: chosen,
+    action: videoActions.includes('speaking') ? 'speaking' : 'idle',
     emotion: 'thoughtful',
   };
 }

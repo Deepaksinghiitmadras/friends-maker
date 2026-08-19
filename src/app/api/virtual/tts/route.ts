@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as googleTTS from 'google-tts-api';
+import { getPersonaById } from '@/lib/virtualPersonas';
+import { getAllPersonasAsync } from '@/lib/customPersonasStore';
 
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
@@ -7,60 +9,110 @@ export async function POST(req: NextRequest) {
     const { text, personaId, language } = await req.json();
 
     if (!text || !text.trim()) {
-      console.warn('[🔊 TTS] Rejected request with empty text');
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
-    // Comprehensive script and vocabulary language auto-detection
-    let lang = language || 'en';
+    const cleanText = text.replace(/[*_~`#]/g, '').trim();
 
-    // 1. Script-based Unicode detection (Instant & 100% accurate)
-    if (/[\u0B80-\u0BFF]/.test(text)) {
-      lang = 'ta'; // Tamil
-    } else if (/[\u0980-\u09FF]/.test(text)) {
-      lang = 'bn'; // Bengali
-    } else if (/[\u0C00-\u0C7F]/.test(text)) {
-      lang = 'te'; // Telugu
-    } else if (/[\u0A80-\u0AFF]/.test(text)) {
-      lang = 'gu'; // Gujarati
-    } else if (/[\u0A00-\u0A7F]/.test(text)) {
-      lang = 'pa'; // Punjabi
-    } else if (/[\u0600-\u06FF]/.test(text)) {
-      lang = 'ur'; // Urdu / Arabic
-    } else if (/[\u4e00-\u9fa5]/.test(text)) {
-      lang = 'zh'; // Chinese
-    } else if (/[\u3040-\u30ff]/.test(text)) {
-      lang = 'ja'; // Japanese
-    } else if (/[\uac00-\ud7af]/.test(text)) {
-      lang = 'ko'; // Korean
-    } else if (/[\u0900-\u097F]/.test(text)) {
-      lang = 'hi'; // Hindi / Marathi
-    } else if (personaId === 'ananya-sharma' || personaId === 'aarav-malhotra' || personaId === 'kabir-malhotra') {
-      const isHinglish = /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar|kya baat|sunao|badhiya)\b/i.test(text);
-      if (isHinglish || language === 'hi') {
-        lang = 'hi';
-      } else {
-        lang = 'en';
+    // Look up persona details to get gender, custom voice ID, etc.
+    const allPersonas = await getAllPersonasAsync();
+    const persona = allPersonas.find((p) => p.id === personaId) || getPersonaById(personaId);
+    const isMan = persona?.gender === 'man';
+
+    console.log(`[🔊 TTS INCOMING] Persona: "${personaId}" (${isMan ? 'Man' : 'Woman'}) | Length: ${cleanText.length} chars | Text: "${cleanText.slice(0, 60)}..."`);
+
+    // ── 1. CHARIOT.IN NATIVE INDIAN TTS (High-fidelity Indian voices: Darshan & Meera) ──
+    const chariotKey = process.env.CHARIOT_KEY || process.env.CHARIOT_API_KEY;
+    if (chariotKey) {
+      try {
+        console.log(`[🔊 TTS CHARIOT] Streaming Indian voice via Chariot.in (${isMan ? 'Darshan (Male)' : 'Meera (Female)'})...`);
+        const chariotRes = await fetch('https://api.chariot.in/v1/tts/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'chariotai-api-key': chariotKey,
+          },
+          body: JSON.stringify({
+            voice_id: isMan ? 'Darshan' : 'Meera',
+            text: cleanText,
+            model_type: 'v0',
+          }),
+        });
+
+        if (chariotRes.ok) {
+          const audioBuffer = await chariotRes.arrayBuffer();
+          if (audioBuffer.byteLength > 100) {
+            console.log(`[🔊 TTS SUCCESS - CHARIOT] Generated ${audioBuffer.byteLength} bytes in ${Date.now() - startTime}ms`);
+            return new NextResponse(audioBuffer, {
+              status: 200,
+              headers: {
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': String(audioBuffer.byteLength),
+                'Cache-Control': 'public, max-age=3600',
+              },
+            });
+          }
+        }
+      } catch (chariotErr) {
+        console.warn('[🔊 TTS CHARIOT WARNING] Chariot fetch failed, falling back:', chariotErr);
       }
-    } else if (personaId === 'elena-rostova') {
-      const isSpanish = /\b(hola|cómo|estas|gracias|amor|buenos|noches|que|tal|corazon|vida)\b/i.test(text);
-      lang = isSpanish ? 'es' : 'en';
-    } else if (personaId === 'marcus-chen') {
-      lang = language === 'zh' ? 'zh' : 'en';
     }
 
-    const cleanText = text.replace(/[*_~`]/g, '').trim();
-    console.log(`[🔊 TTS INCOMING] Persona: "${personaId}" | Lang: "${lang}" | Length: ${cleanText.length} chars | Text: "${cleanText.slice(0, 60)}..."`);
+    // ── 2. ELEVENLABS MULTILINGUAL V2 / CUSTOM CLONED VOICE ──────────────────────
+    const elevenKey = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_API_KEY;
+    const voiceId = persona?.voiceId || (isMan ? 'pNInz6obpgDQGcFmaJgB' : '21m00Tcm4TlvDq8ikWAM'); // Adam/Rachel defaults
 
-    // Generate Google TTS audio URLs (supports text longer than 200 chars via chunking)
+    if (elevenKey) {
+      try {
+        console.log(`[🔊 TTS ELEVENLABS] Calling ElevenLabs Multilingual V2 (Voice: ${voiceId})...`);
+        const elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'xi-api-key': elevenKey,
+          },
+          body: JSON.stringify({
+            text: cleanText,
+            model_id: 'eleven_multilingual_v2',
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+            },
+          }),
+        });
+
+        if (elevenRes.ok) {
+          const audioBuffer = await elevenRes.arrayBuffer();
+          if (audioBuffer.byteLength > 100) {
+            console.log(`[🔊 TTS SUCCESS - ELEVENLABS] Generated ${audioBuffer.byteLength} bytes in ${Date.now() - startTime}ms`);
+            return new NextResponse(audioBuffer, {
+              status: 200,
+              headers: {
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': String(audioBuffer.byteLength),
+                'Cache-Control': 'public, max-age=3600',
+              },
+            });
+          }
+        }
+      } catch (elevenErr) {
+        console.warn('[🔊 TTS ELEVENLABS WARNING] ElevenLabs fetch failed, falling back:', elevenErr);
+      }
+    }
+
+    // ── 3. GOOGLE TTS PARALLEL CHUNKING STREAM (Universal Zero-Config Fallback) ──
+    let lang = language || 'en';
+    if (/[\u0900-\u097F]/.test(cleanText) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar)\b/i.test(cleanText)) {
+      lang = 'hi';
+    }
+
     const audioUrlObjects = googleTTS.getAllAudioUrls(cleanText, {
-      lang: lang,
+      lang,
       slow: false,
       host: 'https://translate.google.com',
       splitPunct: '.,!?।;',
     });
 
-    // Fetch all audio chunks in parallel
     const chunkPromises = audioUrlObjects.map(async (item) => {
       const res = await fetch(item.url, {
         headers: {
@@ -68,14 +120,13 @@ export async function POST(req: NextRequest) {
           'Referer': 'https://translate.google.com/',
         },
       });
-      if (!res.ok) throw new Error(`Google chunk fetch failed with status ${res.status}`);
+      if (!res.ok) throw new Error(`Chunk fetch failed: ${res.status}`);
       return res.arrayBuffer();
     });
 
     const chunkBuffers = await Promise.all(chunkPromises);
     const totalLength = chunkBuffers.reduce((acc, b) => acc + b.byteLength, 0);
-    
-    // Combine all chunks into a single audio stream
+
     const combinedBuffer = new Uint8Array(totalLength);
     let offset = 0;
     for (const buf of chunkBuffers) {
@@ -83,10 +134,8 @@ export async function POST(req: NextRequest) {
       offset += buf.byteLength;
     }
 
-    const duration = Date.now() - startTime;
-    console.log(`[🔊 TTS SUCCESS] Generated ${totalLength} bytes across ${chunkBuffers.length} chunk(s) in ${duration}ms`);
+    console.log(`[🔊 TTS SUCCESS - GOOGLE] Generated ${totalLength} bytes in ${Date.now() - startTime}ms`);
 
-    // Return the audio directly as binary stream
     return new NextResponse(combinedBuffer, {
       status: 200,
       headers: {

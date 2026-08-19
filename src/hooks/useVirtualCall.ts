@@ -684,9 +684,13 @@ export function useVirtualCall(persona: VirtualPersona) {
         const fetchDuration = Date.now() - fetchStart;
         const data = await res.json();
 
-        const replyText = data.reply || "I'm so glad we are talking right now, tell me more!";
+        const replyText =
+          data.reply ||
+          (persona.gender === 'man'
+            ? `Main samajh gaya! Aap bataiye, dil mein aur kya chal raha hai?`
+            : `Aapse baat karke sach mein bahut accha lag raha hai! Aur bataiye apne baare mein.`);
         const aiAction = data.action || 'speaking';
-        const emotion = data.emotion || 'romantic';
+        const emotion = data.emotion || 'happy';
         const source = data.source || 'unknown';
 
         addLog(

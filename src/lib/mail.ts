@@ -138,3 +138,72 @@ export async function sendUserCompanionReadyEmail(params: {
     console.error('[📧 MAIL] Failed to send user companion ready email:', err);
   }
 }
+
+/**
+ * 💌 Send AI Companion's Daily Selfie & Morning/Night Voice Note to User.
+ */
+export async function sendCompanionDailySelfieNoteEmail(params: {
+  userEmail: string;
+  userName: string;
+  companionName: string;
+  companionId: string;
+  noteType: 'morning' | 'night' | 'surprise';
+  message: string;
+  selfieUrl: string;
+  audioUrl?: string;
+}) {
+  try {
+    if (!params.userEmail || params.userEmail.includes('anonymous')) {
+      return;
+    }
+
+    const callUrl = `${baseUrl}/virtual/call/${params.companionId}`;
+    const subjectEmoji = params.noteType === 'morning' ? '☀️' : params.noteType === 'night' ? '🌙' : '✨';
+    const timeTitle = params.noteType === 'morning' ? 'Morning Note & Daily Selfie' : params.noteType === 'night' ? 'Night Check-in & Sweet Dreams' : 'Special Note & Selfie';
+
+    return await transporter.sendMail({
+      from: `"${params.companionName} from TrueFriends" <${process.env.NODEMAILER_EMAIL}>`,
+      to: params.userEmail,
+      subject: `${subjectEmoji} ${params.companionName} sent you a ${timeTitle}!`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 16px; background-color: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <span style="background: linear-gradient(135deg, #ec4899, #8b5cf6); color: white; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+              ${params.companionName}'s Daily Note
+            </span>
+            <h2 style="color: #111827; margin: 12px 0 4px 0; font-size: 20px;">
+              ${subjectEmoji} ${timeTitle}
+            </h2>
+            <p style="font-size: 13px; color: #6b7280; margin: 0;">For ${params.userName}</p>
+          </div>
+
+          <!-- Selfie Image -->
+          <div style="text-align: center; margin: 20px 0;">
+            <img src="${params.selfieUrl}" alt="${params.companionName}" style="width: 100%; max-width: 420px; height: auto; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); border: 2px solid #f3e8ff; object-fit: cover;" />
+          </div>
+
+          <!-- Message Card -->
+          <div style="background-color: #faf5ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 18px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 15px; color: #581c87; line-height: 1.6; font-style: italic;">
+              "${params.message}"
+            </p>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="text-align: center; margin-top: 25px;">
+            <a href="${callUrl}" style="display: inline-block; background: linear-gradient(to right, #ec4899, #8b5cf6); color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 10px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 14px 0 rgba(236, 72, 153, 0.39);">
+              Video Call ${params.companionName} Now 🎥
+            </a>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid #f3f4f6; margin: 30px 0 15px 0;" />
+          <p style="font-size: 11px; color: #9ca3af; text-align: center; margin: 0;">
+            TrueFriends AI Companion Studio · You received this because you are connected with ${params.companionName}.
+          </p>
+        </div>
+      `,
+    });
+  } catch (err) {
+    console.error('[📧 MAIL] Failed to send companion daily selfie note email:', err);
+  }
+}

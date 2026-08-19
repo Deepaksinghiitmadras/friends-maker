@@ -142,3 +142,33 @@ model CustomPersona {
   sampleQuestions String[] @default([])
 }
 
+model CompanionMemory {
+  id          String   @id @default(cuid())
+  userId      String
+  personaId   String
+  category    String   @default("general") // emotion, preference, personal_story, goal, work
+  memoryText  String
+  importance  Int      @default(3) // 1-5
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, personaId])
+}
+
+model DailyCompanionNote {
+  id           String   @id @default(cuid())
+  userId       String
+  userEmail    String?
+  personaId    String
+  personaName  String
+  noteType     String   @default("morning") // morning, night, surprise
+  message      String
+  selfieUrl    String
+  audioUrl     String?
+  sentEmail    Boolean  @default(false)
+  sentWhatsapp Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([userId, personaId])
+}
+
