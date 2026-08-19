@@ -545,15 +545,9 @@ export function useVirtualCall(persona: VirtualPersona) {
         }
       };
 
-      // ── If persona is male, ALWAYS use dedicated natural male voice (never Google Translate female voice)
-      if (persona.gender === 'man') {
-        speakWithWebSpeech(text, currentGenId);
-        return;
-      }
-
-      // ── Step 1: For women personas, try Neural TTS API first (proxied audio/mpeg binary stream)
+      // ── Step 1: Request studio TTS binary stream (Chariot.in / ElevenLabs / Google TTS)
       try {
-        addLog('TTS', 'Requesting Neural TTS binary stream from /api/virtual/tts...', 'info');
+        addLog('TTS', `Requesting Neural TTS audio stream from /api/virtual/tts (${persona.gender === 'man' ? 'Darshan Male' : 'Meera Female'})...`, 'info');
         const ttsRes = await fetch('/api/virtual/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

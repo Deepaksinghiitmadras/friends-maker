@@ -552,8 +552,11 @@ export default function CreateCompanionModal({
                   onChange={(e) => setName(e.target.value)}
                   isRequired
                   size="sm"
+                  variant="bordered"
                   classNames={{
-                    inputWrapper: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                    label: '!text-purple-300 font-bold text-xs',
+                    input: '!text-white text-sm font-medium placeholder:!text-gray-500',
+                    inputWrapper: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
                   }}
                 />
 
@@ -562,14 +565,18 @@ export default function CreateCompanionModal({
                   selectedKeys={[gender]}
                   onChange={(e) => setGender(e.target.value as 'woman' | 'man')}
                   size="sm"
+                  variant="bordered"
                   classNames={{
-                    trigger: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                    label: '!text-purple-300 font-bold text-xs',
+                    value: '!text-white font-medium text-sm',
+                    trigger: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
+                    popoverContent: '!bg-gray-950 !text-white border border-purple-500/40',
                   }}
                 >
-                  <SelectItem key="man" value="man">
+                  <SelectItem key="man" value="man" className="text-white hover:bg-purple-600/30">
                     👨 Man (Male Voice &amp; Persona)
                   </SelectItem>
-                  <SelectItem key="woman" value="woman">
+                  <SelectItem key="woman" value="woman" className="text-white hover:bg-pink-600/30">
                     👩 Woman (Female Voice &amp; Persona)
                   </SelectItem>
                 </Select>
@@ -582,8 +589,11 @@ export default function CreateCompanionModal({
                   value={age}
                   onChange={(e) => setAge(e.target.value)}
                   size="sm"
+                  variant="bordered"
                   classNames={{
-                    inputWrapper: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                    label: '!text-purple-300 font-bold text-xs',
+                    input: '!text-white text-sm font-medium placeholder:!text-gray-500',
+                    inputWrapper: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
                   }}
                 />
 
@@ -592,8 +602,11 @@ export default function CreateCompanionModal({
                   value={languageChoice}
                   onChange={(e) => setLanguageChoice(e.target.value)}
                   size="sm"
+                  variant="bordered"
                   classNames={{
-                    inputWrapper: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                    label: '!text-purple-300 font-bold text-xs',
+                    input: '!text-white text-sm font-medium placeholder:!text-gray-500',
+                    inputWrapper: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
                   }}
                 />
               </div>
@@ -604,8 +617,11 @@ export default function CreateCompanionModal({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 size="sm"
+                variant="bordered"
                 classNames={{
-                  inputWrapper: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                  label: '!text-purple-300 font-bold text-xs',
+                  input: '!text-white text-sm font-medium placeholder:!text-gray-500',
+                  inputWrapper: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
                 }}
               />
 
@@ -616,8 +632,11 @@ export default function CreateCompanionModal({
                 onChange={(e) => setPersonality(e.target.value)}
                 minRows={2}
                 size="sm"
+                variant="bordered"
                 classNames={{
-                  inputWrapper: 'bg-white/5 border border-white/10 hover:border-purple-400',
+                  label: '!text-purple-300 font-bold text-xs',
+                  input: '!text-white text-sm font-medium placeholder:!text-gray-500',
+                  inputWrapper: '!bg-gray-900/90 !border-purple-500/40 hover:!border-pink-500 focus-within:!border-pink-500',
                 }}
               />
 
