@@ -2,21 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import {
-  loadCustomPersonasAsync,
+  getAllPersonasAsync,
   updateCustomPersona,
   deleteCustomPersonaFromFile,
 } from '@/lib/customPersonasStore';
-import { generateVideoActionPrompts, VIRTUAL_PERSONAS, getAllPersonas, registerCustomPersona } from '@/lib/virtualPersonas';
+import { generateVideoActionPrompts } from '@/lib/virtualPersonas';
 import { sendUserCompanionReadyEmail } from '@/lib/mail';
 
 export async function GET() {
   try {
-    const customList = await loadCustomPersonasAsync();
-    for (const p of customList) {
-      registerCustomPersona(p);
-    }
-
-    const all = getAllPersonas();
+    const all = await getAllPersonasAsync();
 
     // Check disk status of videos for all personas
     const enhancedPersonas = all.map((p) => {

@@ -324,6 +324,17 @@ LANGUAGE & EMPATHY RULES:
 
 export const CUSTOM_PERSONAS: VirtualPersona[] = [];
 
+export function clearCustomPersonas() {
+  CUSTOM_PERSONAS.length = 0;
+}
+
+export function unregisterCustomPersona(id: string) {
+  const idx = CUSTOM_PERSONAS.findIndex((p) => p.id === id);
+  if (idx >= 0) {
+    CUSTOM_PERSONAS.splice(idx, 1);
+  }
+}
+
 export function registerCustomPersona(persona: VirtualPersona) {
   const existingIdx = CUSTOM_PERSONAS.findIndex((p) => p.id === persona.id);
   if (existingIdx >= 0) {

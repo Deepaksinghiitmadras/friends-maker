@@ -156,6 +156,23 @@ export function useVirtualCall(persona: VirtualPersona) {
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
 
+  const cachedVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const updateVoices = () => {
+        try {
+          const v = window.speechSynthesis.getVoices();
+          if (v && v.length > 0) {
+            cachedVoicesRef.current = v;
+          }
+        } catch (_) {}
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
+
   // ── HELPERS ───────────────────────────────────────────────────────────────────
 
   const registerStream = (stream: MediaStream) => {
@@ -427,31 +444,72 @@ export function useVirtualCall(persona: VirtualPersona) {
 
         try {
           window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(speechText);
+
+          // Clean speech text: remove emojis, markdown symbols, and multiple spaces
+          const cleanSpeech = speechText
+            .replace(/[*_~`#]/g, '')
+            .replace(/[\uD83C-\uDBFF\uDC00-\uDFFF]+/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const utterance = new SpeechSynthesisUtterance(cleanSpeech);
           currentUtteranceRef.current = utterance;
 
           const isMan = persona.gender === 'man';
-          const hasHindiText = /[\u0900-\u097F]/.test(speechText) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar)\b/i.test(speechText);
+          const hasHindiText = /[\u0900-\u097F]/.test(cleanSpeech) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar)\b/i.test(cleanSpeech);
           
           utterance.lang = hasHindiText ? 'hi-IN' : 'en-IN';
-          utterance.pitch = isMan ? 0.88 : 1.04;
-          utterance.rate = isMan ? 0.98 : 0.97;
+          utterance.pitch = isMan ? 0.92 : 1.05;
+          utterance.rate = isMan ? 1.0 : 0.98;
 
-          const voices = window.speechSynthesis.getVoices();
+          // Get voices from live API or cached ref
+          let voices = window.speechSynthesis.getVoices();
+          if (voices.length === 0 && cachedVoicesRef.current.length > 0) {
+            voices = cachedVoicesRef.current;
+          }
+
           if (voices.length > 0) {
             let matchedVoice: SpeechSynthesisVoice | undefined;
 
-            const maleKeywords = ['rishi', 'kunal', 'pradeep', 'aaron', 'arthur', 'daniel', 'alex', 'fred', 'male', 'ravi', 'hemant', 'david', 'mark', 'george'];
-            const femaleKeywords = ['aditi', 'kajal', 'veena', 'lekha', 'google हिन्दी', 'female', 'samantha', 'victoria', 'karen', 'zira', 'swara', 'heera'];
+            const maleKeywords = ['rishi', 'kunal', 'pradeep', 'ravi', 'hemant', 'daniel', 'oliver', 'aaron', 'arthur', 'alex', 'david', 'mark', 'george', 'fred', 'tom', 'male', 'guy'];
+            const femaleKeywords = ['aditi', 'kajal', 'veena', 'lekha', 'swara', 'heera', 'samantha', 'victoria', 'karen', 'zira', 'moira', 'tessa', 'fiona', 'serena', 'female', 'woman'];
 
             if (isMan) {
-              matchedVoice = voices.find((v) =>
-                maleKeywords.some((k) => v.name.toLowerCase().includes(k))
-              );
+              // 1. Try Indian / Hindi Male first
+              matchedVoice = voices.find((v) => {
+                const name = v.name.toLowerCase();
+                const lang = v.lang.toLowerCase();
+                const isInd = lang.includes('in') || lang.includes('hi');
+                const isMale = maleKeywords.some((k) => name.includes(k));
+                const isFemale = femaleKeywords.some((k) => name.includes(k));
+                return isInd && isMale && !isFemale;
+              });
+
+              // 2. Try any clear natural Male voice
+              if (!matchedVoice) {
+                matchedVoice = voices.find((v) => {
+                  const name = v.name.toLowerCase();
+                  const isMale = maleKeywords.some((k) => name.includes(k));
+                  const isFemale = femaleKeywords.some((k) => name.includes(k));
+                  return isMale && !isFemale;
+                });
+              }
+
+              // 3. Fallback to any voice that is NOT explicitly female
+              if (!matchedVoice) {
+                matchedVoice = voices.find((v) => {
+                  const name = v.name.toLowerCase();
+                  return !femaleKeywords.some((k) => name.includes(k));
+                });
+              }
             } else {
-              matchedVoice = voices.find((v) =>
-                femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
-              );
+              // Female voice selection
+              matchedVoice = voices.find((v) => {
+                const name = v.name.toLowerCase();
+                const isFemale = femaleKeywords.some((k) => name.includes(k));
+                const isMale = maleKeywords.some((k) => name.includes(k));
+                return isFemale && !isMale;
+              });
             }
 
             // Fallback to preferred voice names if specified
@@ -465,7 +523,7 @@ export function useVirtualCall(persona: VirtualPersona) {
 
             if (matchedVoice) {
               utterance.voice = matchedVoice;
-              addLog('TTS', `Selected ${isMan ? '👨 Male' : '👩 Female'} Voice: "${matchedVoice.name}" (${matchedVoice.lang})`, 'info');
+              addLog('TTS', `Selected ${isMan ? '👨 Natural Male' : '👩 Natural Female'} Voice: "${matchedVoice.name}" (${matchedVoice.lang})`, 'info');
             }
           }
 
@@ -479,7 +537,7 @@ export function useVirtualCall(persona: VirtualPersona) {
             handleSpeechEnd(genId, 'webspeech-onerror');
           };
 
-          addLog('TTS', `Speaking with ${isMan ? 'casual male' : 'warm female'} voice...`, 'info');
+          addLog('TTS', `Speaking with ${isMan ? '👨 natural male' : '👩 warm female'} voice...`, 'info');
           window.speechSynthesis.speak(utterance);
         } catch (err: any) {
           addLog('TTS', `WebSpeech execution failed: ${err.message}`, 'error');
@@ -487,7 +545,7 @@ export function useVirtualCall(persona: VirtualPersona) {
         }
       };
 
-      // ── If persona is male, use dedicated casual male voice directly
+      // ── If persona is male, ALWAYS use dedicated natural male voice (never Google Translate female voice)
       if (persona.gender === 'man') {
         speakWithWebSpeech(text, currentGenId);
         return;

@@ -37,15 +37,8 @@ export default function VirtualVideoCallPage() {
   useEffect(() => {
     async function loadPersona() {
       const personaId = params.personaId;
-      // 1. Try local/built-in lookup
-      const local = getPersonaById(personaId);
-      if (local) {
-        setPersona(local);
-        setLoading(false);
-        return;
-      }
 
-      // 2. Fetch from API for custom personas
+      // 1. Fetch latest persona from API (with PostgreSQL overrides)
       try {
         const res = await fetch('/api/virtual/custom-persona');
         const data = await res.json();
@@ -59,6 +52,14 @@ export default function VirtualVideoCallPage() {
         }
       } catch (err) {
         console.error('Failed to load persona from API:', err);
+      }
+
+      // 2. Fallback to built-in lookup
+      const local = getPersonaById(personaId);
+      if (local) {
+        setPersona(local);
+        setLoading(false);
+        return;
       }
 
       setNotFound(true);

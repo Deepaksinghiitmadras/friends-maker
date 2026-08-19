@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { VirtualPersona } from './virtualPersonas';
+import { VirtualPersona, unregisterCustomPersona, registerCustomPersona, VIRTUAL_PERSONAS } from './virtualPersonas';
 import { prisma } from './prisma';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -86,7 +86,10 @@ export async function saveCustomPersonaToFile(persona: VirtualPersona) {
     console.warn('[STORE] DB save warning:', dbErr);
   }
 
-  // 2. Local file fallback
+  // 2. In-memory update
+  registerCustomPersona({ ...persona, isActive, isGlobal });
+
+  // 3. Local file fallback
   try {
     ensureFileExists();
     if (fs.existsSync(FILE_PATH)) {
@@ -105,7 +108,7 @@ export async function saveCustomPersonaToFile(persona: VirtualPersona) {
 }
 
 /**
- * Load all custom personas from Database (with local file fallback).
+ * Load all custom personas from Database.
  */
 export async function loadCustomPersonasAsync(): Promise<VirtualPersona[]> {
   try {
@@ -113,8 +116,9 @@ export async function loadCustomPersonasAsync(): Promise<VirtualPersona[]> {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (dbPersonas && dbPersonas.length > 0) {
-      return dbPersonas.map((p) => ({
+    // If query succeeded, return whatever is in DB (even if empty after deletions)
+    if (dbPersonas) {
+      const mapped = dbPersonas.map((p) => ({
         id: p.id,
         name: p.name,
         age: p.age,
@@ -140,19 +144,29 @@ export async function loadCustomPersonasAsync(): Promise<VirtualPersona[]> {
         isActive: p.isActive,
         createdAt: p.createdAt.toISOString(),
         voiceStyle: (p.voiceStyle as any) || {
-          pitch: p.gender === 'man' ? 0.88 : 1.04,
-          rate: p.gender === 'man' ? 0.98 : 0.97,
+          pitch: p.gender === 'man' ? 0.92 : 1.04,
+          rate: 1.0,
         },
         systemPrompt: p.systemPrompt,
         traits: (p.traits as any) || { warmth: 95, humor: 90, intellect: 90, energy: 90 },
         sampleQuestions: p.sampleQuestions,
       }));
+
+      // Sync local file with DB state
+      try {
+        ensureFileExists();
+        if (fs.existsSync(FILE_PATH)) {
+          fs.writeFileSync(FILE_PATH, JSON.stringify(mapped, null, 2), 'utf-8');
+        }
+      } catch (_) {}
+
+      return mapped;
     }
   } catch (err) {
-    console.warn('[STORE] DB load warning:', err);
+    console.warn('[STORE] DB load warning, checking file fallback:', err);
   }
 
-  // Fallback to local file
+  // Fallback to local file only if DB threw connection exception
   return loadCustomPersonasFromFile();
 }
 
@@ -173,6 +187,35 @@ export function loadCustomPersonasFromFile(): VirtualPersona[] {
 }
 
 /**
+ * Get all merged personas (custom from DB + built-ins with DB overrides).
+ */
+export async function getAllPersonasAsync(): Promise<VirtualPersona[]> {
+  const dbPersonas = await loadCustomPersonasAsync();
+
+  // Apply DB overrides on built-in personas (like active status, global flag)
+  const builtInMerged = VIRTUAL_PERSONAS.map((builtIn) => {
+    const override = dbPersonas.find((p) => p.id === builtIn.id);
+    if (override) {
+      return {
+        ...builtIn,
+        isActive: override.isActive !== undefined ? override.isActive : builtIn.isActive,
+        isGlobal: override.isGlobal !== undefined ? override.isGlobal : builtIn.isGlobal,
+        status: override.status || builtIn.status,
+        videoClips: override.videoClips || builtIn.videoClips,
+      };
+    }
+    return builtIn;
+  });
+
+  // Only include custom personas that exist in DB (not built-in)
+  const customOnly = dbPersonas.filter(
+    (p) => !VIRTUAL_PERSONAS.some((builtIn) => builtIn.id === p.id)
+  );
+
+  return [...customOnly, ...builtInMerged];
+}
+
+/**
  * Update custom persona flags in Database and file.
  */
 export async function updateCustomPersona(id: string, updates: Partial<VirtualPersona>) {
@@ -184,7 +227,6 @@ export async function updateCustomPersona(id: string, updates: Partial<VirtualPe
     if (updates.isGlobal !== undefined) dataToUpdate.isGlobal = updates.isGlobal;
     if (updates.videoClips !== undefined) dataToUpdate.videoClips = updates.videoClips;
 
-    // Check if exists in DB or is a built-in persona override
     const existing = await prisma.customPersona.findUnique({ where: { id } });
     if (existing) {
       const updated = await prisma.customPersona.update({
@@ -193,8 +235,8 @@ export async function updateCustomPersona(id: string, updates: Partial<VirtualPe
       });
       return updated;
     } else {
-      const { VIRTUAL_PERSONAS } = require('./virtualPersonas');
-      const builtIn = VIRTUAL_PERSONAS.find((b: any) => b.id === id);
+      // Check if it's a built-in persona being customized
+      const builtIn = VIRTUAL_PERSONAS.find((b) => b.id === id);
       if (builtIn) {
         const created = await prisma.customPersona.create({
           data: {
@@ -215,7 +257,7 @@ export async function updateCustomPersona(id: string, updates: Partial<VirtualPe
             isGlobal: updates.isGlobal !== undefined ? updates.isGlobal : true,
             isActive: updates.isActive !== undefined ? updates.isActive : true,
             systemPrompt: builtIn.systemPrompt,
-            videoClips: builtIn.videoClips as any,
+            videoClips: (updates.videoClips || builtIn.videoClips) as any,
             voiceStyle: builtIn.voiceStyle as any,
             traits: builtIn.traits as any,
             sampleQuestions: builtIn.sampleQuestions,
@@ -263,11 +305,15 @@ export async function deleteCustomPersonaFromFile(id: string) {
     await prisma.customPersona.deleteMany({
       where: { id },
     });
+    console.log(`[STORE] Deleted persona "${id}" from PostgreSQL database`);
   } catch (err) {
     console.warn('[STORE] DB delete warning:', err);
   }
 
-  // 2. Delete from file & video folder
+  // 2. Unregister from in-memory array
+  unregisterCustomPersona(id);
+
+  // 3. Delete from local JSON file
   try {
     ensureFileExists();
     if (fs.existsSync(FILE_PATH)) {
