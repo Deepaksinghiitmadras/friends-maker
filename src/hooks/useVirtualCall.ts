@@ -430,22 +430,32 @@ export function useVirtualCall(persona: VirtualPersona) {
           const utterance = new SpeechSynthesisUtterance(speechText);
           currentUtteranceRef.current = utterance;
 
-          const hasHindiText = /[\u0900-\u097F]/.test(speechText) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji)\b/i.test(speechText);
+          const isMan = persona.gender === 'man';
+          const hasHindiText = /[\u0900-\u097F]/.test(speechText) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar)\b/i.test(speechText);
           
-          if (persona.id === 'ananya-sharma') {
-            utterance.lang = hasHindiText ? 'hi-IN' : 'en-IN';
-          } else if (persona.id === 'elena-rostova') {
-            utterance.lang = 'en-US';
-          } else {
-            utterance.lang = 'en-US';
-          }
+          utterance.lang = hasHindiText ? 'hi-IN' : 'en-IN';
+          utterance.pitch = isMan ? 0.88 : 1.04;
+          utterance.rate = isMan ? 0.98 : 0.97;
 
           const voices = window.speechSynthesis.getVoices();
           if (voices.length > 0) {
             let matchedVoice: SpeechSynthesisVoice | undefined;
 
-            // 1. Try preferred voice names
-            if (persona.voiceStyle.preferredVoiceNames) {
+            const maleKeywords = ['rishi', 'kunal', 'pradeep', 'aaron', 'arthur', 'daniel', 'alex', 'fred', 'male', 'ravi', 'hemant', 'david', 'mark', 'george'];
+            const femaleKeywords = ['aditi', 'kajal', 'veena', 'lekha', 'google हिन्दी', 'female', 'samantha', 'victoria', 'karen', 'zira', 'swara', 'heera'];
+
+            if (isMan) {
+              matchedVoice = voices.find((v) =>
+                maleKeywords.some((k) => v.name.toLowerCase().includes(k))
+              );
+            } else {
+              matchedVoice = voices.find((v) =>
+                femaleKeywords.some((k) => v.name.toLowerCase().includes(k))
+              );
+            }
+
+            // Fallback to preferred voice names if specified
+            if (!matchedVoice && persona.voiceStyle?.preferredVoiceNames) {
               matchedVoice = voices.find((v) =>
                 persona.voiceStyle.preferredVoiceNames?.some((pref) =>
                   v.name.toLowerCase().includes(pref.toLowerCase())
@@ -453,17 +463,9 @@ export function useVirtualCall(persona: VirtualPersona) {
               );
             }
 
-            // 2. Try regional language match for Indian persona
-            if (!matchedVoice && persona.id === 'ananya-sharma') {
-              matchedVoice = voices.find((v) =>
-                (v.lang.includes('hi') || v.lang.includes('IN') || v.name.toLowerCase().includes('india')) &&
-                !v.name.toLowerCase().includes('male')
-              ) || voices.find((v) => v.lang.includes('hi') || v.lang.includes('IN'));
-            }
-
             if (matchedVoice) {
               utterance.voice = matchedVoice;
-              addLog('TTS', `WebSpeech selected voice: "${matchedVoice.name}" (${matchedVoice.lang})`, 'info');
+              addLog('TTS', `Selected ${isMan ? '👨 Male' : '👩 Female'} Voice: "${matchedVoice.name}" (${matchedVoice.lang})`, 'info');
             }
           }
 
@@ -477,7 +479,7 @@ export function useVirtualCall(persona: VirtualPersona) {
             handleSpeechEnd(genId, 'webspeech-onerror');
           };
 
-          addLog('TTS', `WebSpeech synthesizing audio...`, 'info');
+          addLog('TTS', `Speaking with ${isMan ? 'casual male' : 'warm female'} voice...`, 'info');
           window.speechSynthesis.speak(utterance);
         } catch (err: any) {
           addLog('TTS', `WebSpeech execution failed: ${err.message}`, 'error');
@@ -485,7 +487,13 @@ export function useVirtualCall(persona: VirtualPersona) {
         }
       };
 
-      // ── Step 1: Try Neural TTS API first (proxied audio/mpeg binary stream)
+      // ── If persona is male, use dedicated casual male voice directly
+      if (persona.gender === 'man') {
+        speakWithWebSpeech(text, currentGenId);
+        return;
+      }
+
+      // ── Step 1: For women personas, try Neural TTS API first (proxied audio/mpeg binary stream)
       try {
         addLog('TTS', 'Requesting Neural TTS binary stream from /api/virtual/tts...', 'info');
         const ttsRes = await fetch('/api/virtual/tts', {
@@ -534,15 +542,13 @@ export function useVirtualCall(persona: VirtualPersona) {
             return;
           }
         } else {
-          addLog('TTS', `Neural TTS returned status ${ttsRes.status}, falling back to WebSpeech`, 'warn');
+          addLog('TTS', 'Neural TTS unavailable, falling back to WebSpeech', 'info');
+          speakWithWebSpeech(text, currentGenId);
         }
       } catch (err: any) {
-        if (speechGenIdRef.current !== currentGenId) return;
-        addLog('TTS', `Neural TTS fetch error (${err.message}), falling back to WebSpeech`, 'warn');
+        addLog('TTS', `Neural TTS fetch failed (${err.message}), falling back to WebSpeech`, 'warn');
+        speakWithWebSpeech(text, currentGenId);
       }
-
-      // Step 2: Fallback to WebSpeech if Neural TTS failed or returned non-audio
-      speakWithWebSpeech(text, currentGenId);
     },
     [persona, addLog, stopAllAudioPlayback, callStatus]
   );
@@ -955,6 +961,11 @@ export function useVirtualCall(persona: VirtualPersona) {
 
     isSpeakingRef.current = false;
     isProcessingRef.current = false;
+    chatHistoryRef.current = [];
+    accumulatedSpeechRef.current = '';
+    lastCompanionSpeechRef.current = '';
+    setChatHistory([]);
+    setCurrentCaption('');
     setIsSpeaking(false);
     setIsListening(false);
     setIsProcessing(false);

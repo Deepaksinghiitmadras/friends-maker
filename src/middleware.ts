@@ -9,23 +9,32 @@ export default auth((req) => {
     const { nextUrl } = req;
     const isLoggedIn = !!req.auth;
 
-    const isPublic = publicRoutes.includes(nextUrl.pathname);
+    const isPublic = publicRoutes.includes(nextUrl.pathname) || nextUrl.pathname.startsWith('/virtual');
     const isAuthRoute = authRoutes.includes(nextUrl.pathname);
     const isProfileComplete = (req.auth?.user as any)?.profileComplete;
     const isAdmin = (req.auth?.user as any)?.role === 'ADMIN';
     const isAdminRoute = nextUrl.pathname.startsWith('/admin');
 
+    if (isAdminRoute) {
+        if (!isLoggedIn) {
+            return NextResponse.redirect(new URL(`/login?callbackUrl=${encodeURIComponent(nextUrl.pathname)}`, nextUrl));
+        }
+        if (!isAdmin) {
+            return NextResponse.redirect(new URL('/', nextUrl));
+        }
+        return NextResponse.next();
+    }
+
     if (isPublic || isAdmin) {
         return NextResponse.next();
     }
 
-    if (isAdminRoute && !isAdmin) {
-        return NextResponse.redirect(new URL('/', nextUrl));
-    }
-
     if (isAuthRoute) {
         if (isLoggedIn) {
-            return NextResponse.redirect(new URL('/members', nextUrl))
+            if (isAdmin) {
+                return NextResponse.redirect(new URL('/admin/virtual-companions', nextUrl));
+            }
+            return NextResponse.redirect(new URL('/members', nextUrl));
         }
         return NextResponse.next();
     }

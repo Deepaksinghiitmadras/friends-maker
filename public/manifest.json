@@ -1,0 +1,38 @@
+{
+  "name": "TrueFriends - AI Companions & Real Dating",
+  "short_name": "TrueFriends",
+  "description": "Interactive AI video companions, emotional connection, and real dating in a judgment-free sanctuary.",
+  "start_url": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ec4899",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/images/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/images/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "social", "entertainment"],
+  "shortcuts": [
+    {
+      "name": "AI Virtual Companions",
+      "url": "/virtual",
+      "description": "Start live video calls with AI companions"
+    },
+    {
+      "name": "Real Matches",
+      "url": "/members",
+      "description": "Browse real singles and friends"
+    }
+  ]
+}

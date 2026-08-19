@@ -16,27 +16,46 @@ import ModeToggle from "./ModeToggle";
 
 export default async function TopNavGlass() {
   const session = await auth();
-  const userInfo =
-    session?.user && (await getUserInfoForNav());
+  const userInfo = session?.user ? await getUserInfoForNav() : null;
+
+  const currentUser = session?.user
+    ? {
+        name: userInfo?.name || session.user.name || session.user.email || 'User',
+        image: userInfo?.image || session.user.image || null,
+        role: ((session.user as any)?.role as string) || 'MEMBER',
+      }
+    : null;
+
+  const isAdmin = currentUser?.role === 'ADMIN';
 
   const memberLinks = [
     { href: "/members", label: "Matches" },
     { href: "/lists", label: "Lists" },
     { href: "/messages", label: "Messages" },
+    { href: "/virtual", label: "Virtual Dating" },
   ];
 
   const adminLinks = [
     {
+      href: "/admin/virtual-companions",
+      label: "🤖 Companion Studio",
+    },
+    {
       href: "/admin/moderation",
       label: "Photo Moderation",
     },
+    {
+      href: "/virtual",
+      label: "Virtual Dating",
+    },
+    {
+      href: "/members",
+      label: "Matches",
+    },
   ];
 
-  const links =
-    session?.user.role === "ADMIN"
-      ? adminLinks
-      : memberLinks;
-  
+  const links = isAdmin ? adminLinks : memberLinks;
+
   return (
     <>
       <Navbar
@@ -68,9 +87,9 @@ export default async function TopNavGlass() {
             size={36}
             className="text-pink-500 drop-shadow-sm"
           />
-          <div className="font-bold text-2xl flex">
-            <span className="text-slate-800 tracking-tight">
-              Friends Maker
+          <div className="font-bold text-2xl flex items-center">
+            <span className="bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+              TrueFriends
             </span>
           </div>
         </NavbarBrand>
@@ -86,8 +105,8 @@ export default async function TopNavGlass() {
             ))}
         </NavbarContent>
         <NavbarContent justify="end" className="gap-3">
-          {userInfo ? (
-            <UserMenu userInfo={userInfo} />
+          {currentUser ? (
+            <UserMenu userInfo={currentUser} />
           ) : (
             <>
               <Button

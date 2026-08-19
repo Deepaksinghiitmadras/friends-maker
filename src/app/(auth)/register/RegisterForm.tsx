@@ -96,7 +96,7 @@ export default function RegisterForm() {
             </h1>
           </div>
           <p className="text-neutral-500">
-            Welcome to Friends Maker
+            Welcome to TrueFriends
           </p>
         </div>
       </CardHeader>

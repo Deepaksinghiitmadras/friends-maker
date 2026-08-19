@@ -21,18 +21,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Persona not found' }, { status: 404 });
     }
 
-    const groqKey = process.env.GROQ_API_KEY;
-    const geminiKey = process.env.GEMINI_API_KEY;
+    // Collect all available Groq API keys for automatic failover
+    const groqKeys: string[] = [];
+    if (process.env.GROQ_API_KEY) groqKeys.push(process.env.GROQ_API_KEY);
+    for (let i = 1; i <= 10; i++) {
+      const key = process.env[`GROQ_API_KEY${i}`];
+      if (key && !groqKeys.includes(key)) groqKeys.push(key);
+    }
+    if (process.env.GROQ_API_KEYS) {
+      const split = process.env.GROQ_API_KEYS.split(',').map((k) => k.trim()).filter(Boolean);
+      for (const k of split) {
+        if (!groqKeys.includes(k)) groqKeys.push(k);
+      }
+    }
+
     const modelToUse = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
     // Get actual available video file names from persona config
     const videoActions = getAvailableVideoActions(persona);
     console.log(`[🤖 CHAT] Available video actions: [${videoActions.join(', ')}]`);
+    console.log(`[🤖 CHAT] Loaded ${groqKeys.length} Groq API key(s) in failover pool`);
 
     // Build the action instruction with explicit video file → trigger mapping
     const actionInstructions = `
-VIDEO ACTION SYSTEM (CRITICAL - YOU MUST FOLLOW):
-You have access to pre-recorded video clips. For EVERY response, you MUST pick the single best-matching video action.
+EMPATHY & CONVERSATION RULES (CRITICAL):
+1. UNDERSTAND USER'S PURPOSE & EMOTIONAL STATE:
+   - "Mann Ki Baat" / Venting / Loneliness: If the user is tired, stressed, feeling lonely, sharing personal problems, or seeking comfort, be deeply empathetic and gentle. Validate their emotions (e.g. "Main samajh sakti hoon, kabhi kabhi dil halka karna zaroori hota hai... main hamesha yahin hoon aapke liye").
+   - Romance / Dating: If the user is flirty, playful, or charming, respond with sweet romantic banter, blushes, and warmth.
+   - Deep Philosophy / Curiosity: If the user asks deep questions, engage thoughtfully.
+2. CONTEXT AWARENESS: You are provided with the recent conversation history. Actively reference previous things the user shared in this call so the date feels real and continuous.
+3. LANGUAGE MATCHING: Match the user's language seamlessly (Hindi, English, Hinglish, or any regional/foreign language).
+
+VIDEO ACTION SYSTEM:
+You have access to pre-recorded video clips. For EVERY response, pick the single best-matching video action.
 
 AVAILABLE VIDEO FILES: [${videoActions.map(a => `"${a}"`).join(', ')}]
 
@@ -43,80 +64,96 @@ ACTION SELECTION RULES (check in order, pick FIRST match):
 - User makes a joke / you laugh / haha / funny / hilarious → "laugh"
 - User gives a sweet compliment / flattery / you get shy / blush → "blush"
 - User or you mentions wine / toast / cheers / celebrate / champagne → "cheers"
+- User shares deep feelings / needs comfort / you listen closely / intimacy → "lean_in"
 - User asks deep/thoughtful question / you need to think / ponder → "thinking"
-- User wants intimacy / you lean closer / whisper / secret → "lean_in"
 - User mentions cozy / sleepy / yawn / late night / cold → "cozy"
 - User explicitly says goodbye / bye / wave / waves → "wave"
 - User mentions gym / workout / exercise / stretch / fitness → "workout"
-- Default for all regular conversation, answering questions, or talking → "speaking"
+- Default for all regular conversation, empathetic listening, or talking → "speaking"
 - Last resort → "idle"
 
 RESPONSE FORMAT (valid JSON only, nothing else):
-{"reply": "Your 2-3 sentence warm dating response", "action": "one_action_from_list_above", "emotion": "romantic|playful|happy|thoughtful|empathetic"}`;
+{"reply": "Your 2-3 sentence warm empathetic or dating response", "action": "one_action_from_list_above", "emotion": "romantic|playful|happy|thoughtful|empathetic"}`;
 
     const fullSystemPrompt = `${persona.systemPrompt}\n\n${actionInstructions}`;
 
-    // 1. Priority 1: Groq High-Speed Inference
-    if (groqKey) {
-      try {
-        console.log(`[🤖 CHAT] Attempting Groq inference with model "${modelToUse}"...`);
-        const messages: ChatMessage[] = [
-          { role: 'system', content: fullSystemPrompt },
-          ...(conversationHistory || []).slice(-10),
-          { role: 'user', content: message },
-        ];
+    // 1. Priority 1: Groq High-Speed Inference with Automatic Multi-Key Failover
+    if (groqKeys.length > 0) {
+      const messages: ChatMessage[] = [
+        { role: 'system', content: fullSystemPrompt },
+        ...(conversationHistory || []).slice(-16),
+        { role: 'user', content: message },
+      ];
 
-        const groqStart = Date.now();
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${groqKey}`,
-          },
-          body: JSON.stringify({
-            model: modelToUse,
-            messages,
-            temperature: 0.8,
-            max_completion_tokens: 1000,
-            response_format: { type: 'json_object' },
-          }),
-        });
+      for (let keyIndex = 0; keyIndex < groqKeys.length; keyIndex++) {
+        const currentKey = groqKeys[keyIndex];
+        const keyMasked = `${currentKey.slice(0, 6)}...${currentKey.slice(-4)}`;
+        try {
+          console.log(`[🤖 CHAT] Attempting Groq inference with key #${keyIndex + 1} (${keyMasked}) and model "${modelToUse}"...`);
+          const groqStart = Date.now();
+          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${currentKey}`,
+            },
+            body: JSON.stringify({
+              model: modelToUse,
+              messages,
+              temperature: 0.8,
+              max_completion_tokens: 1000,
+              response_format: { type: 'json_object' },
+            }),
+          });
 
-        const groqDuration = Date.now() - groqStart;
+          const groqDuration = Date.now() - groqStart;
 
-        if (res.ok) {
-          const data = await res.json();
-          let rawContent = data.choices?.[0]?.message?.content?.trim();
-          if (rawContent) {
-            rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-            try {
-              const parsed = JSON.parse(rawContent);
-              const cleanReply = (parsed.reply || rawContent).replace(/[*_~`]/g, '').trim();
-              const action = validateAction(parsed.action, videoActions, cleanReply);
-              console.log(`[🤖 CHAT SUCCESS - GROQ] Time: ${groqDuration}ms | Action: "${action}" | Emotion: "${parsed.emotion}"`);
-              return NextResponse.json({
-                reply: cleanReply,
-                action,
-                emotion: parsed.emotion || 'romantic',
-                source: 'groq',
-                model: modelToUse,
-                latencyMs: Date.now() - startTime,
-              });
-            } catch (jsonErr) {
-              const cleanReply = rawContent.replace(/[*_~`]/g, '').trim();
-              const action = extractActionFromText(cleanReply, videoActions);
-              return NextResponse.json({
-                reply: cleanReply,
-                action,
-                emotion: 'romantic',
-                source: 'groq',
-                latencyMs: Date.now() - startTime,
-              });
+          if (res.ok) {
+            const data = await res.json();
+            let rawContent = data.choices?.[0]?.message?.content?.trim();
+            if (rawContent) {
+              rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+              try {
+                const parsed = JSON.parse(rawContent);
+                const cleanReply = (parsed.reply || rawContent).replace(/[*_~`]/g, '').trim();
+                const action = validateAction(parsed.action, videoActions, cleanReply);
+                console.log(`[🤖 CHAT SUCCESS - GROQ (Key #${keyIndex + 1})] Time: ${groqDuration}ms | Action: "${action}" | Emotion: "${parsed.emotion}"`);
+                return NextResponse.json({
+                  reply: cleanReply,
+                  action,
+                  emotion: parsed.emotion || 'romantic',
+                  source: `groq-key-${keyIndex + 1}`,
+                  model: modelToUse,
+                  latencyMs: Date.now() - startTime,
+                });
+              } catch (jsonErr) {
+                const cleanReply = rawContent.replace(/[*_~`]/g, '').trim();
+                const action = extractActionFromText(cleanReply, videoActions);
+                return NextResponse.json({
+                  reply: cleanReply,
+                  action,
+                  emotion: 'romantic',
+                  source: `groq-key-${keyIndex + 1}`,
+                  latencyMs: Date.now() - startTime,
+                });
+              }
+            }
+          } else {
+            const errBody = await res.text();
+            console.warn(`[🤖 CHAT GROQ WARNING] Key #${keyIndex + 1} failed (Status: ${res.status}). Body: ${errBody}`);
+            // If rate limited (429) or unauthorized (401) or other, try next key in pool
+            if (keyIndex < groqKeys.length - 1) {
+              console.log(`[🤖 CHAT] Switching to fallback key #${keyIndex + 2}...`);
+              continue;
             }
           }
+        } catch (err) {
+          console.error(`[🤖 CHAT GROQ ERROR] Key #${keyIndex + 1} threw error:`, err);
+          if (keyIndex < groqKeys.length - 1) {
+            console.log(`[🤖 CHAT] Switching to fallback key #${keyIndex + 2}...`);
+            continue;
+          }
         }
-      } catch (err) {
-        console.error('[🤖 CHAT GROQ ERROR]', err);
       }
     }
 

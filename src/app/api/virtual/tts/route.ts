@@ -11,23 +11,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
-    // Determine language based on persona and text content
+    // Comprehensive script and vocabulary language auto-detection
     let lang = language || 'en';
-    if (personaId === 'ananya-sharma') {
-      const hasDevanagari = /[\u0900-\u097F]/.test(text);
-      const isHinglish = /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji)\b/i.test(text);
-      
-      if (hasDevanagari || isHinglish || language === 'hi') {
+
+    // 1. Script-based Unicode detection (Instant & 100% accurate)
+    if (/[\u0B80-\u0BFF]/.test(text)) {
+      lang = 'ta'; // Tamil
+    } else if (/[\u0980-\u09FF]/.test(text)) {
+      lang = 'bn'; // Bengali
+    } else if (/[\u0C00-\u0C7F]/.test(text)) {
+      lang = 'te'; // Telugu
+    } else if (/[\u0A80-\u0AFF]/.test(text)) {
+      lang = 'gu'; // Gujarati
+    } else if (/[\u0A00-\u0A7F]/.test(text)) {
+      lang = 'pa'; // Punjabi
+    } else if (/[\u0600-\u06FF]/.test(text)) {
+      lang = 'ur'; // Urdu / Arabic
+    } else if (/[\u4e00-\u9fa5]/.test(text)) {
+      lang = 'zh'; // Chinese
+    } else if (/[\u3040-\u30ff]/.test(text)) {
+      lang = 'ja'; // Japanese
+    } else if (/[\uac00-\ud7af]/.test(text)) {
+      lang = 'ko'; // Korean
+    } else if (/[\u0900-\u097F]/.test(text)) {
+      lang = 'hi'; // Hindi / Marathi
+    } else if (personaId === 'ananya-sharma' || personaId === 'aarav-malhotra' || personaId === 'kabir-malhotra') {
+      const isHinglish = /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar|kya baat|sunao|badhiya)\b/i.test(text);
+      if (isHinglish || language === 'hi') {
         lang = 'hi';
       } else {
         lang = 'en';
       }
     } else if (personaId === 'elena-rostova') {
-      const isSpanish = /\b(hola|cómo|estas|gracias|amor|buenos|noches|que|tal)\b/i.test(text);
+      const isSpanish = /\b(hola|cómo|estas|gracias|amor|buenos|noches|que|tal|corazon|vida)\b/i.test(text);
       lang = isSpanish ? 'es' : 'en';
     } else if (personaId === 'marcus-chen') {
-      const hasChinese = /[\u4e00-\u9fa5]/.test(text);
-      lang = hasChinese ? 'zh' : 'en';
+      lang = language === 'zh' ? 'zh' : 'en';
     }
 
     const cleanText = text.replace(/[*_~`]/g, '').trim();
