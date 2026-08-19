@@ -38,6 +38,7 @@ import {
   FaEnvelope,
   FaEyeSlash,
   FaTimes,
+  FaVolumeUp,
 } from 'react-icons/fa';
 import { HiSparkles, HiPhoto } from 'react-icons/hi2';
 
@@ -60,6 +61,9 @@ interface CustomCompanionAdminItem {
   isGlobal?: boolean;
   isActive?: boolean;
   createdAt?: string;
+  referencePhotos?: string[];
+  voiceSampleUrl?: string;
+  voiceId?: string;
   hasIdleVideo: boolean;
   hasSpeakingVideo: boolean;
   idleVideoSize: number;
@@ -515,22 +519,60 @@ export default function AdminVirtualCompanionsPage() {
                         )}
                       </div>
 
-                      {/* Download Reference Photo Button */}
-                      <Button
-                        size="sm"
-                        fullWidth
-                        variant="flat"
-                        color="secondary"
-                        className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300"
-                        startContent={<FaDownload className="text-xs" />}
-                        onClick={() => handleDownloadPhoto(item.avatarImage, item.name)}
-                      >
-                        Download Photo
-                      </Button>
+                      {/* Download Reference Photos Gallery */}
+                      {item.referencePhotos && item.referencePhotos.length > 0 ? (
+                        <div className="w-full space-y-2">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-gray-500">
+                            <span>Reference Photos ({item.referencePhotos.length})</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 w-full">
+                            {item.referencePhotos.map((photoUrl, pIdx) => (
+                              <div
+                                key={pIdx}
+                                className="group relative aspect-square rounded-lg overflow-hidden border border-purple-400/40 bg-black cursor-pointer"
+                                onClick={() => handleDownloadPhoto(photoUrl, `${item.name}-ref-${pIdx + 1}`)}
+                                title="Click to download photo"
+                              >
+                                <Image src={photoUrl} alt={`Ref ${pIdx + 1}`} fill className="object-cover" />
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <FaDownload className="text-white text-xs" />
+                                </div>
+                                <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-white text-center py-0.5">
+                                  {pIdx === 0 ? 'Main' : pIdx === 1 ? 'Close-Up' : `Angle ${pIdx + 1}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <Button
+                            size="sm"
+                            fullWidth
+                            variant="flat"
+                            color="secondary"
+                            className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300"
+                            startContent={<FaDownload className="text-xs" />}
+                            onClick={() => handleDownloadPhoto(item.avatarImage, item.name)}
+                          >
+                            Download Main Portrait
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          fullWidth
+                          variant="flat"
+                          color="secondary"
+                          className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300"
+                          startContent={<FaDownload className="text-xs" />}
+                          onClick={() => handleDownloadPhoto(item.avatarImage, item.name)}
+                        >
+                          Download Photo
+                        </Button>
+                      )}
                     </div>
 
                     {/* Column 2: Prompts & Details (5 cols) */}
                     <div className="lg:col-span-5 space-y-4">
+                      {/* Personality */}
                       <div className="space-y-1.5">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                           Personality &amp; Speaking Vibe
@@ -539,6 +581,29 @@ export default function AdminVirtualCompanionsPage() {
                           {item.personality}
                         </p>
                       </div>
+
+                      {/* User Uploaded Voice Sample (if available) */}
+                      {item.voiceSampleUrl && (
+                        <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+                              <FaVolumeUp className="text-pink-500" />
+                              <span>User Voice Sample (For Voice Cloning)</span>
+                            </span>
+                            <a
+                              href={item.voiceSampleUrl}
+                              download={`${item.name}-voice-sample.webm`}
+                              className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
+                            >
+                              <FaDownload className="text-[9px]" /> Download Audio
+                            </a>
+                          </div>
+                          <audio src={item.voiceSampleUrl} controls className="w-full h-8" />
+                          <p className="text-[10px] text-gray-400">
+                            Tip: Upload this audio to ElevenLabs Instant Voice Cloning or PlayHT to generate a cloned voice ID.
+                          </p>
+                        </div>
+                      )}
 
                       {/* Prompt 1: Idle Video */}
                       <div className="space-y-1.5">

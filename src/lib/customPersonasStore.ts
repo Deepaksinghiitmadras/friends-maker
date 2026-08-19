@@ -50,6 +50,9 @@ export async function saveCustomPersonaToFile(persona: VirtualPersona) {
         isGlobal,
         isActive,
         systemPrompt: persona.systemPrompt || '',
+        referencePhotos: persona.referencePhotos || [],
+        voiceSampleUrl: persona.voiceSampleUrl || null,
+        voiceId: persona.voiceId || null,
         videoClips: persona.videoClips ? (persona.videoClips as any) : undefined,
         voiceStyle: persona.voiceStyle ? (persona.voiceStyle as any) : undefined,
         traits: persona.traits ? (persona.traits as any) : undefined,
@@ -76,6 +79,9 @@ export async function saveCustomPersonaToFile(persona: VirtualPersona) {
         isGlobal,
         isActive,
         systemPrompt: persona.systemPrompt || '',
+        referencePhotos: persona.referencePhotos || [],
+        voiceSampleUrl: persona.voiceSampleUrl || null,
+        voiceId: persona.voiceId || null,
         videoClips: persona.videoClips ? (persona.videoClips as any) : undefined,
         voiceStyle: persona.voiceStyle ? (persona.voiceStyle as any) : undefined,
         traits: persona.traits ? (persona.traits as any) : undefined,
@@ -143,6 +149,9 @@ export async function loadCustomPersonasAsync(): Promise<VirtualPersona[]> {
         isGlobal: p.isGlobal,
         isActive: p.isActive,
         createdAt: p.createdAt.toISOString(),
+        referencePhotos: p.referencePhotos || [],
+        voiceSampleUrl: p.voiceSampleUrl || undefined,
+        voiceId: p.voiceId || undefined,
         voiceStyle: (p.voiceStyle as any) || {
           pitch: p.gender === 'man' ? 0.92 : 1.04,
           rate: 1.0,
@@ -226,6 +235,9 @@ export async function updateCustomPersona(id: string, updates: Partial<VirtualPe
     if (updates.isActive !== undefined) dataToUpdate.isActive = updates.isActive;
     if (updates.isGlobal !== undefined) dataToUpdate.isGlobal = updates.isGlobal;
     if (updates.videoClips !== undefined) dataToUpdate.videoClips = updates.videoClips;
+    if (updates.referencePhotos !== undefined) dataToUpdate.referencePhotos = updates.referencePhotos;
+    if (updates.voiceSampleUrl !== undefined) dataToUpdate.voiceSampleUrl = updates.voiceSampleUrl;
+    if (updates.voiceId !== undefined) dataToUpdate.voiceId = updates.voiceId;
 
     const existing = await prisma.customPersona.findUnique({ where: { id } });
     if (existing) {

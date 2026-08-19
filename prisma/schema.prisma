@@ -133,6 +133,9 @@ model CustomPersona {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   systemPrompt    String   @default("")
+  referencePhotos String[] @default([])
+  voiceSampleUrl  String?
+  voiceId         String?
   videoClips      Json?
   voiceStyle      Json?
   traits          Json?

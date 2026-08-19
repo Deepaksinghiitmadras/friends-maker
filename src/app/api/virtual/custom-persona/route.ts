@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
       greeting,
       avatarImage,
       serverImagePath,
+      referencePhotos = [],
+      voiceSampleUrl,
     } = body;
 
     if (!name || !name.trim()) {
@@ -105,6 +107,10 @@ LANGUAGE & EMPATHY RULES:
             ? '/images/custom_user_companion.jpeg'
             : 'https://images.unsplash.com/photo-1617627143750-d86bc21e42bb?w=800&auto=format&fit=crop&q=80');
 
+    const allPhotos = Array.isArray(referencePhotos) && referencePhotos.length > 0
+      ? referencePhotos
+      : [resolvedAvatarImage];
+
     const newPersona: VirtualPersona = {
       id,
       name,
@@ -114,6 +120,8 @@ LANGUAGE & EMPATHY RULES:
       location,
       tagline: `${personality.slice(0, 80)}...`,
       avatarImage: resolvedAvatarImage,
+      referencePhotos: allPhotos,
+      voiceSampleUrl: voiceSampleUrl || undefined,
       videoClips: {
         idle: `/videos/${id}/idle.mp4`,
         speaking: `/videos/${id}/speaking.mp4`,
@@ -131,8 +139,8 @@ LANGUAGE & EMPATHY RULES:
       isActive: true,  // Active by default
       createdAt: new Date().toISOString(),
       voiceStyle: {
-        pitch: isMan ? 0.88 : 1.04,
-        rate: isMan ? 0.98 : 0.97,
+        pitch: isMan ? 0.92 : 1.04,
+        rate: 1.0,
         preferredVoiceNames: isMan
           ? ['Rishi', 'Kunal', 'Pradeep', 'Aaron', 'Arthur', 'Daniel', 'Alex', 'Fred', 'Google UK English Male', 'Microsoft Ravi', 'Microsoft Hemant', 'Microsoft David']
           : ['Aditi', 'Kajal', 'Veena', 'Lekha', 'Google हिन्दी', 'Google UK English Female', 'Samantha', 'Victoria', 'Karen'],

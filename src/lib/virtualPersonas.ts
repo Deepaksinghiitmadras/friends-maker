@@ -42,6 +42,9 @@ export interface VirtualPersona {
   isGlobal?: boolean;
   isActive?: boolean;
   createdAt?: string;
+  referencePhotos?: string[];
+  voiceSampleUrl?: string;
+  voiceId?: string;
   voiceStyle: {
     pitch: number;
     rate: number;
