@@ -172,3 +172,35 @@ model DailyCompanionNote {
   @@index([userId, personaId])
 }
 
+model UserActivity {
+  id          String   @id @default(cuid())
+  userId      String?
+  userEmail   String?
+  userName    String?
+  category    String   // "virtual_dating" | "real_dating" | "auth" | "system"
+  action      String   // "virtual_call_start", "virtual_call_end", "real_call_start", "real_call_end", "chat_message", "profile_update", "match_like", "login"
+  targetId    String?  // personaId or matched memberId
+  targetName  String?  // persona name or member name
+  durationSec Int?     // call duration in seconds
+  details     Json?
+  deviceInfo  String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model RealDatingCall {
+  id          String    @id @default(cuid())
+  callerId    String
+  receiverId  String
+  status      String    @default("initiated") // initiated, active, ended, rejected
+  startTime   DateTime  @default(now())
+  endTime     DateTime?
+  durationSec Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([callerId, receiverId])
+}
+

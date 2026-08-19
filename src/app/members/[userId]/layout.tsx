@@ -25,6 +25,7 @@ export default async function Layout({
       href: `${basePath}/photos`,
     },
     { name: "Chat", href: `${basePath}/chat` },
+    { name: "🎥 Video Call", href: `/dating/call/${member.userId}` },
   ];
 
   return (

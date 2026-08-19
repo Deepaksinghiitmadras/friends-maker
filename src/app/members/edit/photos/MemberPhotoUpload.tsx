@@ -10,27 +10,14 @@ import { toast } from "react-toastify";
 export default function MemberPhotoUpload() {
   const router = useRouter();
 
-  const onAddImage = async (
-    result: CloudinaryUploadWidgetResults
-  ) => {
-    if (
-      result.info &&
-      typeof result.info === "object"
-    ) {
-      await addImage(
-        result.info.secure_url,
-        result.info.public_id
-      );
-      router.refresh();
-    } else {
-      toast.error("Problem adding image");
-    }
+  const onAddImage = async (result: CloudinaryUploadWidgetResults) => {
+    // Photo is already saved to DB and Cloudinary by the upload endpoint
+    router.refresh();
   };
+
   return (
     <div>
-      <ImageUploadButton
-        onUploadImage={onAddImage}
-      />
+      <ImageUploadButton onUploadImage={onAddImage} />
     </div>
   );
 }

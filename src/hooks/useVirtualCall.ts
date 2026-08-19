@@ -1010,10 +1010,25 @@ export function useVirtualCall(persona: VirtualPersona) {
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
-      timerRef.current = null;
+            timerRef.current = null;
     }
     if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
     if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
+
+    // Log virtual call duration
+    if (callDuration > 0) {
+      fetch('/api/activity/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: 'virtual_dating',
+          action: 'virtual_call_end',
+          targetId: persona.id,
+          targetName: persona.name,
+          durationSec: callDuration,
+        }),
+      }).catch(() => {});
+    }
 
     isSpeakingRef.current = false;
     isProcessingRef.current = false;

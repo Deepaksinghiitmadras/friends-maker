@@ -353,7 +353,16 @@ export default function AdminVirtualCompanionsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            size="sm"
+            as={Link}
+            href="/admin/analytics"
+            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/30"
+            startContent={<HiSparkles className="text-xs" />}
+          >
+            📊 User Activity &amp; Analytics
+          </Button>
           <Button
             size="sm"
             variant="bordered"
