@@ -17,6 +17,8 @@ import {
   Switch,
   Accordion,
   AccordionItem,
+  Select,
+  SelectItem,
 } from '@nextui-org/react';
 import {
   FaVideo,
@@ -86,6 +88,20 @@ interface CustomCompanionAdminItem {
     [key: string]: string | undefined;
   };
 }
+
+const VOICE_PRESETS = [
+  { id: 'chariot_darshan', name: '🇮🇳 Darshan (Native Indian Male - Chariot.in)', voiceId: '9fbf5ed7-5e81-40e0-b0f9-9ab0345661a3' },
+  { id: 'chariot_meera', name: '🇮🇳 Meera (Native Indian Female - Chariot.in)', voiceId: '3c763516-1d51-4d0a-b328-57b5507fb20b' },
+  { id: 'chariot_neha', name: '🇮🇳 Neha (Calm Indian Female - Chariot.in)', voiceId: '09ecd7b6-3e92-4435-b673-50e8659fc015' },
+  { id: 'eleven_roger', name: '🎙️ Roger (Casual & Resonant Male - ElevenLabs)', voiceId: 'CwhRBWXzGAHq8TQ4Fs17' },
+  { id: 'eleven_sarah', name: '🎙️ Sarah (Warm & Confident Female - ElevenLabs)', voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+  { id: 'eleven_george', name: '🎙️ George (Warm Storyteller Male - ElevenLabs)', voiceId: 'JBFqnCBsd6RMkjVDRZzb' },
+  { id: 'eleven_jessica', name: '🎙️ Jessica (Playful & Bright Female - ElevenLabs)', voiceId: 'cgSgspJ2msm6clMCkdW9' },
+  { id: 'eleven_charlie', name: '🎙️ Charlie (Deep Energetic Male - ElevenLabs)', voiceId: 'IKne3meq5aSn9XLyUdCD' },
+  { id: 'eleven_brian', name: '🎙️ Brian (Comforting Male - ElevenLabs)', voiceId: 'nPczCjzI2devNBz1zQrb' },
+  { id: 'eleven_bella', name: '🎙️ Bella (Professional Female - ElevenLabs)', voiceId: 'hpp4J3VqNfWAUOO0d1Us' },
+  { id: 'eleven_adam', name: '🎙️ Adam (Dominant Firm Male - ElevenLabs)', voiceId: 'pNInz6obpgDQGcFmaJgB' },
+];
 
 const OPTIONAL_ACTIONS = [
   { key: 'coffee', label: '☕ Chai / Coffee Date', desc: 'Holding chai/coffee cup, sipping, warm smile' },
@@ -186,10 +202,10 @@ export default function AdminVirtualCompanionsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`🎉 Success! Cloned Voice ID: ${data.voiceId}`);
+        alert(`🎉 Success! Voice cloned with ID: ${data.voiceId}`);
         await fetchCompanions();
       } else {
-        alert(data.error || 'Failed to clone voice with ElevenLabs');
+        alert(data.error || 'Voice cloning failed');
       }
     } catch (err: any) {
       alert(err.message || 'Voice cloning failed');
@@ -198,8 +214,8 @@ export default function AdminVirtualCompanionsPage() {
     }
   };
 
-  const handleSaveCustomVoiceId = async (personaId: string) => {
-    const voiceId = customVoiceInputs[personaId];
+  const handleSaveCustomVoiceId = async (personaId: string, voiceIdToSave?: string) => {
+    const voiceId = voiceIdToSave || customVoiceInputs[personaId];
     if (!voiceId || !voiceId.trim()) return;
     try {
       const res = await fetch('/api/admin/virtual-companions/clone-voice', {
@@ -209,11 +225,11 @@ export default function AdminVirtualCompanionsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert('Voice ID saved successfully!');
+        alert('Voice assigned successfully!');
         await fetchCompanions();
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to save Voice ID');
+      alert(err.message || 'Failed to save Voice');
     }
   };
 
@@ -317,34 +333,34 @@ export default function AdminVirtualCompanionsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-4 md:p-8 space-y-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 space-y-6">
       {/* ── TOP NAV / HEADER ───────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div>
           <div className="flex items-center gap-3">
             <Link
               href="/admin"
-              className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-all"
+              className="p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-all shadow-sm"
             >
               <FaArrowLeft />
             </Link>
-            <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
+            <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-300 bg-clip-text text-transparent">
               Companion Studio &amp; Video Actions
             </h1>
           </div>
-          <p className="text-xs md:text-sm text-gray-400 mt-1">
-            Manage user requests, auto-clone voices with ElevenLabs, and upload multi-action video clips.
+          <p className="text-xs md:text-sm text-slate-300 mt-1">
+            Manage user requests, assign high-fidelity native Indian &amp; ElevenLabs voices, and upload multi-action video clips.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <Button
             size="sm"
-            variant="flat"
+            variant="bordered"
             color="secondary"
             startContent={<FaSync className={loading ? 'animate-spin' : ''} />}
             onClick={fetchCompanions}
-            className="font-bold text-xs"
+            className="font-bold text-xs border-purple-400/50 text-purple-300 bg-purple-950/40"
           >
             Refresh
           </Button>
@@ -353,7 +369,7 @@ export default function AdminVirtualCompanionsPage() {
             as={Link}
             href="/virtual"
             target="_blank"
-            className="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold text-xs"
+            className="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold text-xs shadow-md shadow-purple-600/30"
             startContent={<FaExternalLinkAlt className="text-xs" />}
           >
             View User Studio
@@ -374,10 +390,10 @@ export default function AdminVirtualCompanionsPage() {
             <button
               key={tab.id}
               onClick={() => setFilterCategory(tab.id)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                 filterCategory === tab.id
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                  ? 'bg-purple-600 text-white border-purple-400 shadow-lg shadow-purple-600/30'
+                  : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
               }`}
             >
               {tab.label}
@@ -385,17 +401,17 @@ export default function AdminVirtualCompanionsPage() {
           ))}
         </div>
 
-        <div className="w-full md:w-72">
+        <div className="w-full md:w-80">
           <Input
             placeholder="Search by name, role, email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            startContent={<FaSearch className="text-gray-400 text-xs" />}
+            startContent={<FaSearch className="text-slate-400 text-xs" />}
             size="sm"
             variant="bordered"
             classNames={{
-              input: '!text-white text-xs',
-              inputWrapper: '!bg-gray-900/90 !border-white/10 hover:!border-purple-400',
+              input: '!text-white text-xs font-medium placeholder:!text-slate-400',
+              inputWrapper: '!bg-slate-900 !border-slate-700 hover:!border-purple-400 focus-within:!border-purple-400',
             }}
           />
         </div>
@@ -403,12 +419,12 @@ export default function AdminVirtualCompanionsPage() {
 
       {/* ── COMPANION CARDS LIST ───────────────────────────────────────────── */}
       {loading ? (
-        <div className="py-20 text-center text-gray-400 space-y-3">
+        <div className="py-20 text-center text-slate-400 space-y-3">
           <FaSync className="animate-spin text-3xl mx-auto text-purple-400" />
           <p className="text-sm font-medium">Loading companion cards...</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-20 text-center text-gray-500">
+        <div className="py-20 text-center text-slate-400 bg-slate-900/50 rounded-3xl border border-slate-800">
           <p className="text-base font-bold">No companions matched your filter</p>
         </div>
       ) : (
@@ -421,20 +437,20 @@ export default function AdminVirtualCompanionsPage() {
             return (
               <Card
                 key={item.id}
-                className="bg-gray-900/80 border border-white/10 shadow-2xl rounded-3xl overflow-hidden"
+                className="bg-slate-900/90 border border-slate-700/80 shadow-xl rounded-3xl overflow-hidden"
               >
                 <CardBody className="p-5 md:p-6 space-y-5">
                   {/* Top Bar: User Owner & Visibility Toggles */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
                       {item.userName && (
-                        <span className="flex items-center gap-1.5 font-bold text-purple-300 bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
+                        <span className="flex items-center gap-1.5 font-bold text-purple-200 bg-purple-950/70 px-3 py-1 rounded-full border border-purple-500/30">
                           <FaUser className="text-pink-400 text-[10px]" />
                           <span>Creator: {item.userName}</span>
-                          {item.userEmail && <span className="text-gray-400">({item.userEmail})</span>}
+                          {item.userEmail && <span className="text-slate-300">({item.userEmail})</span>}
                         </span>
                       )}
-                      <span className="flex items-center gap-1.5 font-semibold text-gray-400 bg-white/5 px-2.5 py-1 rounded-full">
+                      <span className="flex items-center gap-1.5 font-semibold text-slate-200 bg-slate-800 px-3 py-1 rounded-full border border-slate-700">
                         {item.isGlobal ? <FaGlobe className="text-emerald-400" /> : <FaLock className="text-amber-400" />}
                         <span>{item.isGlobal ? 'Global Persona' : 'Private (Creator Only)'}</span>
                       </span>
@@ -442,7 +458,7 @@ export default function AdminVirtualCompanionsPage() {
 
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-400">Global:</span>
+                        <span className="text-slate-300 font-medium">Global:</span>
                         <Switch
                           size="sm"
                           color="secondary"
@@ -451,7 +467,7 @@ export default function AdminVirtualCompanionsPage() {
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={item.isActive !== false ? 'text-emerald-400 font-bold' : 'text-gray-500'}>
+                        <span className={item.isActive !== false ? 'text-emerald-400 font-bold' : 'text-slate-400'}>
                           Active (Live):
                         </span>
                         <Switch
@@ -468,7 +484,7 @@ export default function AdminVirtualCompanionsPage() {
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     {/* Column 1: Avatar & Reference Photos Gallery (3 cols) */}
                     <div className="lg:col-span-3 space-y-4">
-                      <div className="relative w-full aspect-square max-w-[220px] mx-auto rounded-2xl overflow-hidden border-2 border-purple-500/30 shadow-lg">
+                      <div className="relative w-full aspect-square max-w-[220px] mx-auto rounded-2xl overflow-hidden border-2 border-purple-500/40 shadow-lg">
                         <Image
                           src={item.avatarImage || '/images/custom_user_companion.jpeg'}
                           alt={item.name}
@@ -480,8 +496,8 @@ export default function AdminVirtualCompanionsPage() {
                             size="sm"
                             className={
                               isReady
-                                ? 'bg-emerald-500/90 text-white font-bold text-[10px]'
-                                : 'bg-amber-500/90 text-black font-bold text-[10px]'
+                                ? 'bg-emerald-500 text-white font-bold text-[10px] shadow'
+                                : 'bg-amber-400 text-slate-950 font-bold text-[10px] shadow'
                             }
                           >
                             {isReady ? '✓ Video Ready' : '⏳ In Progress'}
@@ -492,17 +508,17 @@ export default function AdminVirtualCompanionsPage() {
                       <div className="text-center">
                         <h2 className="text-lg font-bold text-white flex items-center justify-center gap-2">
                           <span>{item.name}, {item.age}</span>
-                          <Chip size="sm" variant="flat" color="secondary" className="text-[10px] uppercase font-bold">
+                          <Chip size="sm" variant="flat" color="secondary" className="text-[10px] uppercase font-bold bg-purple-900/60 text-purple-200">
                             {item.gender}
                           </Chip>
                         </h2>
-                        <p className="text-xs text-purple-300 font-medium">{item.title}</p>
-                        <p className="text-[11px] text-gray-400">{item.location}</p>
+                        <p className="text-xs text-purple-300 font-semibold">{item.title}</p>
+                        <p className="text-[11px] text-slate-400">{item.location}</p>
                       </div>
 
                       {/* Reference Photos Grid */}
                       {item.referencePhotos && item.referencePhotos.length > 0 && (
-                        <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                           <span className="text-[11px] font-bold text-purple-300 flex items-center gap-1.5">
                             <HiPhoto className="text-pink-400" />
                             <span>Reference Photos ({item.referencePhotos.length})</span>
@@ -512,11 +528,11 @@ export default function AdminVirtualCompanionsPage() {
                               <div
                                 key={idx}
                                 onClick={() => handleDownloadPhoto(photoUrl, `${item.name}_ref_${idx + 1}`)}
-                                className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-pink-400 cursor-pointer group"
+                                className="relative aspect-square rounded-lg overflow-hidden border border-slate-700 hover:border-pink-400 cursor-pointer group"
                                 title="Click to Download"
                               >
                                 <Image src={photoUrl} alt="Ref" fill className="object-cover" />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
                                   <FaDownload className="text-white text-xs" />
                                 </div>
                               </div>
@@ -526,82 +542,93 @@ export default function AdminVirtualCompanionsPage() {
                       )}
                     </div>
 
-                    {/* Column 2: Personality, Prompts & Voice Cloning Tools (5 cols) */}
+                    {/* Column 2: Personality, Prompts & Voice Selection (5 cols) */}
                     <div className="lg:col-span-5 space-y-4">
                       {/* Personality */}
                       <div className="space-y-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                           Personality &amp; Speaking Vibe
                         </span>
-                        <p className="text-xs text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 leading-relaxed">
+                        <p className="text-xs text-slate-200 p-3 rounded-xl bg-slate-950 border border-slate-800 leading-relaxed font-medium">
                           {item.personality}
                         </p>
                       </div>
 
-                      {/* Voice Sample & ElevenLabs Auto-Clone */}
-                      {item.voiceSampleUrl && (
-                        <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-                              <FaVolumeUp className="text-pink-400" />
-                              <span>User Voice Sample (Cloning)</span>
-                            </span>
+                      {/* Voice Settings & Selection Card */}
+                      <div className="p-3.5 rounded-2xl bg-purple-950/40 border border-purple-500/40 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-purple-200 flex items-center gap-1.5">
+                            <FaVolumeUp className="text-pink-400" />
+                            <span>Companion Voice Model</span>
+                          </span>
+                          {item.voiceSampleUrl && (
                             <a
                               href={item.voiceSampleUrl}
                               download={`${item.name}-voice-sample.webm`}
                               className="text-[11px] font-bold text-pink-400 hover:underline flex items-center gap-1"
                             >
-                              <FaDownload className="text-[9px]" /> Download
+                              <FaDownload className="text-[9px]" /> Download Sample
                             </a>
-                          </div>
-
-                          <audio src={item.voiceSampleUrl} controls className="w-full h-8" />
-
-                          <div className="flex flex-wrap items-center gap-2 pt-1">
-                            <Button
-                              size="sm"
-                              color="secondary"
-                              className="bg-gradient-to-r from-pink-500 to-purple-600 font-bold text-xs"
-                              startContent={<FaMagic className="text-xs" />}
-                              isLoading={cloningVoiceId === item.id}
-                              onClick={() => handleAutoCloneVoice(item.id)}
-                            >
-                              {item.voiceId ? 'Re-Clone Voice (ElevenLabs)' : '✨ Auto-Clone Voice with ElevenLabs'}
-                            </Button>
-
-                            {item.voiceId && (
-                              <Chip size="sm" color="success" variant="flat" className="text-[11px] font-mono font-bold">
-                                Voice ID: {item.voiceId.slice(0, 10)}...
-                              </Chip>
-                            )}
-                          </div>
-
-                          {/* Custom Voice ID Input */}
-                          <div className="flex items-center gap-2 pt-1">
-                            <Input
-                              placeholder="Or paste ElevenLabs Voice ID..."
-                              size="sm"
-                              value={customVoiceInputs[item.id] ?? item.voiceId ?? ''}
-                              onChange={(e) =>
-                                setCustomVoiceInputs((prev) => ({ ...prev, [item.id]: e.target.value }))
-                              }
-                              classNames={{
-                                input: '!text-white text-xs font-mono',
-                                inputWrapper: '!bg-black/50 !border-white/10 hover:!border-purple-400 h-8',
-                              }}
-                            />
-                            <Button
-                              size="sm"
-                              variant="flat"
-                              color="secondary"
-                              className="text-xs font-bold h-8"
-                              onClick={() => handleSaveCustomVoiceId(item.id)}
-                            >
-                              Save
-                            </Button>
-                          </div>
+                          )}
                         </div>
-                      )}
+
+                        {item.voiceSampleUrl && (
+                          <audio src={item.voiceSampleUrl} controls className="w-full h-8" />
+                        )}
+
+                        {/* Quick Voice Preset Picker */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-300">
+                            Select Voice Model (Chariot.in Indian or ElevenLabs):
+                          </label>
+                          <Select
+                            placeholder="Choose Voice Preset..."
+                            size="sm"
+                            variant="bordered"
+                            selectedKeys={item.voiceId ? [item.voiceId] : []}
+                            onChange={(e) => {
+                              const chosen = e.target.value;
+                              if (chosen) handleSaveCustomVoiceId(item.id, chosen);
+                            }}
+                            classNames={{
+                              trigger: '!bg-slate-900 !border-slate-700 hover:!border-purple-400 text-xs font-medium',
+                              value: '!text-white text-xs font-medium',
+                              popoverContent: '!bg-slate-950 !text-white border border-slate-700',
+                            }}
+                          >
+                            {VOICE_PRESETS.map((vp) => (
+                              <SelectItem key={vp.voiceId} value={vp.voiceId} className="text-xs text-white hover:bg-purple-600/30">
+                                {vp.name}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </div>
+
+                        {/* Custom Voice ID Input */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <Input
+                            placeholder="Or enter custom ElevenLabs Voice ID..."
+                            size="sm"
+                            value={customVoiceInputs[item.id] ?? item.voiceId ?? ''}
+                            onChange={(e) =>
+                              setCustomVoiceInputs((prev) => ({ ...prev, [item.id]: e.target.value }))
+                            }
+                            classNames={{
+                              input: '!text-white text-xs font-mono placeholder:!text-slate-400',
+                              inputWrapper: '!bg-slate-900 !border-slate-700 hover:!border-purple-400 h-8',
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            variant="solid"
+                            color="secondary"
+                            className="text-xs font-bold h-8 bg-purple-600 text-white"
+                            onClick={() => handleSaveCustomVoiceId(item.id)}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      </div>
 
                       {/* Prompt 1: Idle Video */}
                       <div className="space-y-1.5">
@@ -619,7 +646,7 @@ export default function AdminVirtualCompanionsPage() {
                             {copiedKey === `${item.id}-idle` ? 'Copied!' : 'Copy Prompt'}
                           </Button>
                         </div>
-                        <div className="text-[11px] font-mono text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 select-all leading-relaxed">
+                        <div className="text-[11px] font-mono text-slate-200 p-2.5 rounded-xl bg-slate-950 border border-slate-800 select-all leading-relaxed">
                           {item.prompts?.idle}
                         </div>
                       </div>
@@ -627,20 +654,20 @@ export default function AdminVirtualCompanionsPage() {
                       {/* Prompt 2: Speaking Video */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
                             <HiSparkles /> 2. Speaking Video Prompt (Talking, Lip Sync)
                           </span>
                           <Button
                             size="sm"
                             variant="light"
-                            className="h-6 px-2 text-[11px] font-bold text-purple-400"
+                            className="h-6 px-2 text-[11px] font-bold text-purple-300"
                             startContent={copiedKey === `${item.id}-speaking` ? <FaCheck /> : <FaCopy />}
                             onClick={() => handleCopyPrompt(item.prompts?.speaking || '', `${item.id}-speaking`)}
                           >
                             {copiedKey === `${item.id}-speaking` ? 'Copied!' : 'Copy Prompt'}
                           </Button>
                         </div>
-                        <div className="text-[11px] font-mono text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 select-all leading-relaxed">
+                        <div className="text-[11px] font-mono text-slate-200 p-2.5 rounded-xl bg-slate-950 border border-slate-800 select-all leading-relaxed">
                           {item.prompts?.speaking}
                         </div>
                       </div>
@@ -648,14 +675,14 @@ export default function AdminVirtualCompanionsPage() {
 
                     {/* Column 3: Video Uploads (Primary + Optional Library) (4 cols) */}
                     <div className="lg:col-span-4 space-y-4">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         Upload Video Actions
                       </span>
 
                       {/* 1. Primary Idle Video */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                      <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold flex items-center gap-1.5">
+                          <span className="text-xs font-bold flex items-center gap-1.5 text-white">
                             {item.hasIdleVideo ? <FaCheckCircle className="text-emerald-400" /> : <FaExclamationCircle className="text-amber-400" />}
                             <span>idle.mp4 (Required)</span>
                           </span>
@@ -668,7 +695,7 @@ export default function AdminVirtualCompanionsPage() {
                             </button>
                           )}
                         </div>
-                        <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                        <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-900 border border-dashed border-slate-700 hover:border-purple-400 text-slate-200 hover:text-white cursor-pointer transition-all shadow-sm">
                           <FaUpload className="text-purple-400 text-xs" />
                           <span>{uploadingId === item.id && uploadingType === 'idle' ? 'Uploading...' : 'Upload / Replace idle.mp4'}</span>
                           <input
@@ -685,9 +712,9 @@ export default function AdminVirtualCompanionsPage() {
                       </div>
 
                       {/* 2. Primary Speaking Video */}
-                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                      <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold flex items-center gap-1.5">
+                          <span className="text-xs font-bold flex items-center gap-1.5 text-white">
                             {item.hasSpeakingVideo ? <FaCheckCircle className="text-emerald-400" /> : <FaExclamationCircle className="text-amber-400" />}
                             <span>speaking.mp4 (Required)</span>
                           </span>
@@ -700,7 +727,7 @@ export default function AdminVirtualCompanionsPage() {
                             </button>
                           )}
                         </div>
-                        <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                        <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold bg-slate-900 border border-dashed border-slate-700 hover:border-purple-400 text-slate-200 hover:text-white cursor-pointer transition-all shadow-sm">
                           <FaUpload className="text-purple-400 text-xs" />
                           <span>{uploadingId === item.id && uploadingType === 'speaking' ? 'Uploading...' : 'Upload / Replace speaking.mp4'}</span>
                           <input
@@ -717,7 +744,7 @@ export default function AdminVirtualCompanionsPage() {
                       </div>
 
                       {/* 3. Optional Video Action Library (Collapsible) */}
-                      <Accordion variant="bordered" className="border-white/10">
+                      <Accordion variant="bordered" className="border-slate-800 bg-slate-950/60 rounded-2xl">
                         <AccordionItem
                           key="optional"
                           aria-label="Optional Video Actions"
@@ -726,7 +753,7 @@ export default function AdminVirtualCompanionsPage() {
                               + Optional Action Videos ({OPTIONAL_ACTIONS.length})
                             </span>
                           }
-                          subtitle={<span className="text-[10px] text-gray-400">Chai, Kiss, Laugh, Blush, Wave, Outfit...</span>}
+                          subtitle={<span className="text-[10px] text-slate-400">Chai, Kiss, Laugh, Blush, Wave, Outfit...</span>}
                         >
                           <div className="space-y-3 pt-2">
                             {OPTIONAL_ACTIONS.map((action) => {
@@ -734,9 +761,9 @@ export default function AdminVirtualCompanionsPage() {
                               const promptText = `Close-up interactive video of ${item.name} (${action.desc}), smiling naturally at camera in cozy room, high realism 4k video loop.`;
 
                               return (
-                                <div key={action.key} className="p-2.5 rounded-xl bg-black/40 border border-white/10 space-y-1.5 text-xs">
+                                <div key={action.key} className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5 text-xs">
                                   <div className="flex items-center justify-between">
-                                    <span className="font-bold text-gray-200">{action.label}</span>
+                                    <span className="font-bold text-slate-200">{action.label}</span>
                                     <div className="flex items-center gap-2">
                                       {existingUrl && (
                                         <button
@@ -748,14 +775,14 @@ export default function AdminVirtualCompanionsPage() {
                                       )}
                                       <button
                                         onClick={() => handleCopyPrompt(promptText, `${item.id}-${action.key}`)}
-                                        className="text-[10px] text-purple-300 hover:underline flex items-center gap-1"
+                                        className="text-[10px] text-purple-300 hover:underline flex items-center gap-1 font-semibold"
                                       >
                                         {copiedKey === `${item.id}-${action.key}` ? 'Copied!' : 'Copy Prompt'}
                                       </button>
                                     </div>
                                   </div>
 
-                                  <label className="flex items-center justify-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                                  <label className="flex items-center justify-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-950 border border-dashed border-slate-700 hover:border-purple-400 text-slate-300 hover:text-white cursor-pointer transition-all">
                                     <FaUpload className="text-purple-400 text-[10px]" />
                                     <span>
                                       {uploadingId === item.id && uploadingType === action.key
@@ -783,7 +810,7 @@ export default function AdminVirtualCompanionsPage() {
                       </Accordion>
 
                       {/* Publishing / Status Actions */}
-                      <div className="pt-2 border-t border-white/10 space-y-2">
+                      <div className="pt-2 border-t border-slate-800 space-y-2">
                         {isReady ? (
                           <div className="flex gap-2">
                             <Button
@@ -791,7 +818,7 @@ export default function AdminVirtualCompanionsPage() {
                               fullWidth
                               variant="flat"
                               color="warning"
-                              className="text-xs font-bold"
+                              className="text-xs font-bold bg-amber-950/60 text-amber-300 border border-amber-500/30"
                               onClick={() => handleToggleStatus(item.id, item.status)}
                             >
                               Set to &quot;In Progress&quot;
@@ -801,7 +828,7 @@ export default function AdminVirtualCompanionsPage() {
                               as={Link}
                               href={`/virtual/call/${item.id}`}
                               target="_blank"
-                              className="bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold text-xs"
+                              className="bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold text-xs shadow-md shadow-purple-600/30"
                               startContent={<FaVideo className="text-xs" />}
                             >
                               Test Call
@@ -826,7 +853,7 @@ export default function AdminVirtualCompanionsPage() {
                             variant="light"
                             color="danger"
                             isLoading={deletingId === item.id}
-                            className="text-xs font-bold text-red-400"
+                            className="text-xs font-bold text-red-400 hover:bg-red-950/30"
                             startContent={deletingId !== item.id && <FaTrash className="text-xs" />}
                             onClick={() => handleDelete(item.id, item.name)}
                           >
@@ -849,9 +876,9 @@ export default function AdminVirtualCompanionsPage() {
         onClose={() => setActivePreviewVideo(null)}
         size="2xl"
         classNames={{
-          base: 'bg-gray-950 text-white border border-purple-500/30 rounded-3xl',
-          header: 'border-b border-white/10',
-          footer: 'border-t border-white/10',
+          base: 'bg-slate-950 text-white border border-slate-700 rounded-3xl',
+          header: 'border-b border-slate-800',
+          footer: 'border-t border-slate-800',
         }}
       >
         <ModalContent>
@@ -876,7 +903,7 @@ export default function AdminVirtualCompanionsPage() {
             <Button
               size="sm"
               color="primary"
-              className="bg-purple-600 font-bold"
+              className="bg-purple-600 font-bold text-white"
               onClick={() => setActivePreviewVideo(null)}
             >
               Close Preview

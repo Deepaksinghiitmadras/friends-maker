@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'personaId is required' }, { status: 400 });
     }
 
-    // 1. If admin manually provided a custom Voice ID
+    // 1. If admin manually selected or provided a Voice ID
     if (customVoiceId && customVoiceId.trim()) {
       await updateCustomPersona(personaId, { voiceId: customVoiceId.trim() });
       return NextResponse.json({
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     // Prepare multipart form data for ElevenLabs
     const formData = new FormData();
     formData.append('name', `${persona.name} (${persona.id.slice(0, 8)})`);
-    formData.append('description', `Cloned voice for TrueFriends virtual companion ${persona.name}`);
+    formData.append('description', `Cloned voice for TrueFriends companion ${persona.name}`);
     const audioBlob = new Blob([audioBuffer], { type: mimeType });
     formData.append('files', audioBlob, `voice_sample_${persona.id}.webm`);
 
@@ -82,9 +82,20 @@ export async function POST(req: NextRequest) {
 
     if (!cloneRes.ok) {
       const errText = await cloneRes.text();
-      console.error(`[🎙️ ELEVENLABS CLONE ERROR] Status ${cloneRes.status}:`, errText);
+      console.warn(`[🎙️ ELEVENLABS CLONE NOTICE] Status ${cloneRes.status}:`, errText);
+
+      // Check if it's the free tier limitation
+      if (errText.includes('payment_required') || errText.includes('paid_plan_required')) {
+        return NextResponse.json({
+          success: false,
+          isPaidPlanRequired: true,
+          error:
+            'ElevenLabs Instant Voice Cloning requires their paid Starter plan ($5/mo). On the free tier, you can select from the 20+ ElevenLabs premade voices or Chariot.in Indian voices (Darshan & Meera).',
+        });
+      }
+
       return NextResponse.json(
-        { error: `ElevenLabs cloning failed (${cloneRes.status}): ${errText}` },
+        { error: `ElevenLabs cloning returned status ${cloneRes.status}: ${errText}` },
         { status: cloneRes.status }
       );
     }
