@@ -27,12 +27,14 @@ import {
 import { HiSparkles } from 'react-icons/hi2';
 import { Button, Card, CardBody } from '@nextui-org/react';
 import CreateCompanionModal from '@/components/virtual/CreateCompanionModal';
+import DailyNoteModal from '@/components/virtual/DailyNoteModal';
 
 export default function VirtualCompanionsPage() {
   const [selectedGender, setSelectedGender] = useState<'all' | 'woman' | 'man' | 'custom'>('all');
   const [selectedTrait, setSelectedTrait] = useState<string>('all');
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedNotePersona, setSelectedNotePersona] = useState<VirtualPersona | null>(null);
   const [personasList, setPersonasList] = useState<VirtualPersona[]>([]);
   const [mounted, setMounted] = useState(false);
 
@@ -389,17 +391,29 @@ export default function VirtualCompanionsPage() {
 
                     {/* Actions Area */}
                     <div className="space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-                      {/* Voice Sample Preview */}
-                      <Button
-                        size="sm"
-                        variant="flat"
-                        fullWidth
-                        className="text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100"
-                        startContent={<FaVolumeUp className={playingVoiceId === persona.id ? 'animate-bounce text-pink-500' : ''} />}
-                        onClick={(e) => handlePlayVoicePreview(persona, e)}
-                      >
-                        {playingVoiceId === persona.id ? 'Playing Voice Sample...' : 'Hear Voice Greeting'}
-                      </Button>
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Voice Sample Preview */}
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          className="text-[11px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100"
+                          startContent={<FaVolumeUp className={playingVoiceId === persona.id ? 'animate-bounce text-pink-500' : ''} />}
+                          onClick={(e) => handlePlayVoicePreview(persona, e)}
+                        >
+                          {playingVoiceId === persona.id ? 'Playing...' : 'Hear Voice'}
+                        </Button>
+
+                        {/* WhatsApp / Email Daily Selfie Note */}
+                        <Button
+                          size="sm"
+                          variant="flat"
+                          className="text-[11px] font-semibold text-pink-600 dark:text-pink-300 bg-pink-50 dark:bg-pink-950/40 hover:bg-pink-100"
+                          startContent={<HiSparkles className="text-pink-500 text-xs" />}
+                          onClick={() => setSelectedNotePersona(persona)}
+                        >
+                          Daily Selfie 📸
+                        </Button>
+                      </div>
 
                       {/* Video Call Action Button */}
                       {!isActive ? (
@@ -442,6 +456,15 @@ export default function VirtualCompanionsPage() {
           })}
         </AnimatePresence>
       </div>
+
+      {/* Daily Selfie & Voice Note Modal */}
+      {selectedNotePersona && (
+        <DailyNoteModal
+          isOpen={!!selectedNotePersona}
+          onClose={() => setSelectedNotePersona(null)}
+          persona={selectedNotePersona}
+        />
+      )}
 
       {/* ── HOW IT WORKS SECTION ────────────────────────────────────────────── */}
       <div className="rounded-3xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl p-8 md:p-12 border border-gray-200/80 shadow-lg text-center">

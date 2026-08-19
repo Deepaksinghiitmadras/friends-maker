@@ -536,8 +536,11 @@ export function useVirtualCall(persona: VirtualPersona) {
             handleSpeechEnd(genId, 'webspeech-onerror');
           };
 
-          // Synchronize visual animation with actual speech utterance start
-          triggerSynchronizedPlayback(cleanSpeech, explicitAction);
+          // Synchronize visual animation at the exact instant speech starts playing
+          utterance.onstart = () => {
+            triggerSynchronizedPlayback(cleanSpeech, explicitAction);
+          };
+
           addLog('TTS', `Speaking with ${isMan ? '👨 natural male' : '👩 warm female'} voice...`, 'info');
           window.speechSynthesis.speak(utterance);
         } catch (err: any) {
@@ -572,6 +575,10 @@ export function useVirtualCall(persona: VirtualPersona) {
           const audio = new Audio(blobUrl);
           currentAudioElementRef.current = audio;
 
+          audio.onplay = () => {
+            triggerSynchronizedPlayback(text, explicitAction);
+          };
+
           audio.onended = () => {
             URL.revokeObjectURL(blobUrl);
             currentAudioElementRef.current = null;
@@ -585,10 +592,8 @@ export function useVirtualCall(persona: VirtualPersona) {
             speakWithWebSpeech(text, currentGenId);
           };
 
-          addLog('TTS', `Neural TTS stream loaded (${audioBlob.size} bytes). Playing audio...`, 'success');
+          addLog('TTS', `Neural TTS stream loaded (${audioBlob.size} bytes). Starting audio playback...`, 'success');
           try {
-            // Trigger synchronized visual animation at the exact instant audio begins playing
-            triggerSynchronizedPlayback(text, explicitAction);
             await audio.play();
             return;
           } catch (playErr: any) {
@@ -697,14 +702,6 @@ export function useVirtualCall(persona: VirtualPersona) {
         );
         addLog('AI', `Companion: "${replyText}"`, 'info');
 
-        // Set action immediately
-        if (aiAction !== 'idle' && aiAction !== 'speaking') {
-          if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
-          setAvatarAction(aiAction as AvatarActionType);
-        } else {
-          setAvatarAction('speaking');
-        }
-
         const companionEntry: ChatEntry = {
           sender: 'persona',
           text: replyText,
@@ -724,7 +721,7 @@ export function useVirtualCall(persona: VirtualPersona) {
         console.error('Failed to get companion reply:', err);
         setIsProcessing(false);
         isProcessingRef.current = false;
-        speakText("You have such a wonderful way with words. Tell me more about that!", 'speaking');
+        speakText("Aapse baat karke sach mein bahut accha lag raha hai! Aur bataiye apne baare mein.", 'speaking');
       }
     },
     [persona, speakText, addLog]
