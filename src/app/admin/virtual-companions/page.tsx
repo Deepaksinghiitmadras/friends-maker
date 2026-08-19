@@ -15,6 +15,8 @@ import {
   ModalBody,
   ModalFooter,
   Switch,
+  Accordion,
+  AccordionItem,
 } from '@nextui-org/react';
 import {
   FaVideo,
@@ -39,6 +41,8 @@ import {
   FaEyeSlash,
   FaTimes,
   FaVolumeUp,
+  FaMicrophone,
+  FaMagic,
 } from 'react-icons/fa';
 import { HiSparkles, HiPhoto } from 'react-icons/hi2';
 
@@ -64,6 +68,7 @@ interface CustomCompanionAdminItem {
   referencePhotos?: string[];
   voiceSampleUrl?: string;
   voiceId?: string;
+  videoClips?: Record<string, string>;
   hasIdleVideo: boolean;
   hasSpeakingVideo: boolean;
   idleVideoSize: number;
@@ -71,9 +76,26 @@ interface CustomCompanionAdminItem {
   prompts: {
     idle: string;
     speaking: string;
-    [key: string]: string;
+    coffee?: string;
+    kiss?: string;
+    laugh?: string;
+    blush?: string;
+    wave?: string;
+    standing?: string;
+    lean_in?: string;
+    [key: string]: string | undefined;
   };
 }
+
+const OPTIONAL_ACTIONS = [
+  { key: 'coffee', label: '☕ Chai / Coffee Date', desc: 'Holding chai/coffee cup, sipping, warm smile' },
+  { key: 'kiss', label: '💋 Flying Kiss', desc: 'Blowing a cute flying kiss with sweet blushing smile' },
+  { key: 'laugh', label: '😂 Hearty Laugh', desc: 'Laughing warmly and genuinely at jokes' },
+  { key: 'blush', label: '🥰 Shy Blush', desc: 'Sweetly blushing and tucking hair behind ear' },
+  { key: 'wave', label: '👋 Waving Hello/Bye', desc: 'Waving hand warmly to greet or say goodbye' },
+  { key: 'standing', label: '💃 Full Body / Outfit', desc: 'Standing up, stepping back slightly to showcase outfit' },
+  { key: 'lean_in', label: '👂 Attentive Listening', desc: 'Leaning closer to camera, listening intently' },
+];
 
 export default function AdminVirtualCompanionsPage() {
   const [companions, setCompanions] = useState<CustomCompanionAdminItem[]>([]);
@@ -82,9 +104,11 @@ export default function AdminVirtualCompanionsPage() {
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const [uploadingType, setUploadingType] = useState<'idle' | 'speaking' | null>(null);
+  const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activePreviewVideo, setActivePreviewVideo] = useState<{ title: string; url: string } | null>(null);
+  const [cloningVoiceId, setCloningVoiceId] = useState<string | null>(null);
+  const [customVoiceInputs, setCustomVoiceInputs] = useState<Record<string, string>>({});
 
   const fetchCompanions = async () => {
     setLoading(true);
@@ -122,7 +146,7 @@ export default function AdminVirtualCompanionsPage() {
 
   const handleVideoUpload = async (
     personaId: string,
-    videoType: 'idle' | 'speaking',
+    videoType: string,
     file: File
   ) => {
     setUploadingId(personaId);
@@ -149,6 +173,47 @@ export default function AdminVirtualCompanionsPage() {
     } finally {
       setUploadingId(null);
       setUploadingType(null);
+    }
+  };
+
+  const handleAutoCloneVoice = async (personaId: string) => {
+    setCloningVoiceId(personaId);
+    try {
+      const res = await fetch('/api/admin/virtual-companions/clone-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personaId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`🎉 Success! Cloned Voice ID: ${data.voiceId}`);
+        await fetchCompanions();
+      } else {
+        alert(data.error || 'Failed to clone voice with ElevenLabs');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Voice cloning failed');
+    } finally {
+      setCloningVoiceId(null);
+    }
+  };
+
+  const handleSaveCustomVoiceId = async (personaId: string) => {
+    const voiceId = customVoiceInputs[personaId];
+    if (!voiceId || !voiceId.trim()) return;
+    try {
+      const res = await fetch('/api/admin/virtual-companions/clone-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personaId, customVoiceId: voiceId.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Voice ID saved successfully!');
+        await fetchCompanions();
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to save Voice ID');
     }
   };
 
@@ -207,8 +272,8 @@ export default function AdminVirtualCompanionsPage() {
     }
   };
 
-  const handleDelete = async (personaId: string, name: string) => {
-    if (!confirm(`Are you sure you want to reject and completely delete companion "${name}"? This cannot be undone.`)) {
+  const handleDelete = async (personaId: string, personaName: string) => {
+    if (!confirm(`Are you sure you want to permanently delete "${personaName}"? This action cannot be undone.`)) {
       return;
     }
     setDeletingId(personaId);
@@ -219,409 +284,342 @@ export default function AdminVirtualCompanionsPage() {
       const data = await res.json();
       if (data.success) {
         setCompanions((prev) => prev.filter((c) => c.id !== personaId));
+      } else {
+        alert(data.error || 'Failed to delete companion');
       }
-    } catch (err) {
-      console.error('Failed to delete companion:', err);
+    } catch (err: any) {
+      alert(`Delete error: ${err.message}`);
     } finally {
       setDeletingId(null);
     }
   };
 
   const filtered = companions.filter((c) => {
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchName = c.name?.toLowerCase().includes(q);
-      const matchEmail = c.userEmail?.toLowerCase().includes(q);
-      const matchUser = c.userName?.toLowerCase().includes(q);
-      const matchTitle = c.title?.toLowerCase().includes(q);
-      if (!matchName && !matchEmail && !matchUser && !matchTitle) return false;
+    const matchesSearch =
+      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.userName && c.userName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (c.userEmail && c.userEmail.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    if (filterCategory === 'pending') {
+      return matchesSearch && c.status === 'generating';
     }
-
-    if (filterCategory === 'generating') return c.status === 'generating';
-    if (filterCategory === 'ready') return c.status === 'ready' && c.isActive !== false;
-    if (filterCategory === 'inactive') return c.isActive === false;
-    if (filterCategory === 'global') return c.isGlobal === true;
-    if (filterCategory === 'private') return c.isCustom && !c.isGlobal;
-
-    return true;
+    if (filterCategory === 'ready') {
+      return matchesSearch && c.status === 'ready';
+    }
+    if (filterCategory === 'custom') {
+      return matchesSearch && c.isCustom;
+    }
+    if (filterCategory === 'global') {
+      return matchesSearch && c.isGlobal;
+    }
+    return matchesSearch;
   });
 
-  const inProgressCount = companions.filter((c) => c.status === 'generating').length;
-  const readyCount = companions.filter((c) => c.status === 'ready' && c.isActive !== false).length;
-  const inactiveCount = companions.filter((c) => c.isActive === false).length;
-
   return (
-    <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-gray-900 dark:text-gray-100">
-      {/* ── HEADER ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 bg-gradient-to-r from-purple-950 via-gray-900 to-indigo-950 text-white p-6 sm:p-8 rounded-3xl shadow-xl border border-purple-500/30">
+    <div className="min-h-screen bg-gray-950 text-white p-4 md:p-8 space-y-6">
+      {/* ── TOP NAV / HEADER ───────────────────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div>
-          <div className="flex items-center gap-2 text-pink-400 text-xs font-bold uppercase tracking-wider mb-2">
-            <FaUserSecret className="text-base" />
-            Admin Operations Portal
+          <div className="flex items-center gap-3">
+            <Link
+              href="/admin"
+              className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-all"
+            >
+              <FaArrowLeft />
+            </Link>
+            <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">
+              Companion Studio &amp; Video Actions
+            </h1>
           </div>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-white flex items-center gap-3">
-            <span>Virtual Companion Studio</span>
-            <Chip size="sm" color="secondary" variant="flat" className="text-xs font-bold text-pink-300">
-              User-Wise Management
-            </Chip>
-          </h1>
-          <p className="text-xs sm:text-sm text-purple-200/80 mt-1 max-w-2xl">
-            Review user-created companion requests, filter by creator email, download reference photos, copy AI prompts, toggle Active/Inactive and Global/Private visibility, and upload custom videos.
+          <p className="text-xs md:text-sm text-gray-400 mt-1">
+            Manage user requests, auto-clone voices with ElevenLabs, and upload multi-action video clips.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3 items-center">
+        <div className="flex items-center gap-3">
           <Button
-            as={Link}
-            href="/virtual"
+            size="sm"
             variant="flat"
-            className="bg-white/10 text-white hover:bg-white/20 text-xs font-semibold rounded-xl"
-            startContent={<FaArrowLeft className="text-xs" />}
-          >
-            User Portal
-          </Button>
-          <Button
+            color="secondary"
+            startContent={<FaSync className={loading ? 'animate-spin' : ''} />}
             onClick={fetchCompanions}
-            isLoading={loading}
-            className="bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-pink-600/30"
-            startContent={!loading && <FaSync className="text-xs" />}
+            className="font-bold text-xs"
           >
             Refresh
           </Button>
+          <Button
+            size="sm"
+            as={Link}
+            href="/virtual"
+            target="_blank"
+            className="bg-gradient-to-r from-pink-500 to-purple-600 text-white font-bold text-xs"
+            startContent={<FaExternalLinkAlt className="text-xs" />}
+          >
+            View User Studio
+          </Button>
         </div>
       </div>
 
-      {/* ── WORKFLOW GUIDE BANNER ────────────────────────────────────────────── */}
-      <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 mb-8 space-y-2">
-        <div className="flex items-center gap-2 text-amber-500 dark:text-amber-400 font-bold text-sm">
-          <HiSparkles className="text-lg" />
-          <span>Manual Video Generation Workflow (Gemini Chat / Veo Playground)</span>
+      {/* ── FILTER & SEARCH BAR ────────────────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: 'all', label: `All (${companions.length})` },
+            { id: 'pending', label: `⏳ In Progress (${companions.filter((c) => c.status === 'generating').length})` },
+            { id: 'ready', label: `✅ Ready / Live (${companions.filter((c) => c.status === 'ready').length})` },
+            { id: 'custom', label: `👤 User Custom (${companions.filter((c) => c.isCustom).length})` },
+            { id: 'global', label: `🌐 Global Personas (${companions.filter((c) => c.isGlobal).length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setFilterCategory(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                filterCategory === tab.id
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                  : 'bg-white/5 text-gray-400 hover:bg-white/10'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-        <ol className="list-decimal list-inside text-xs sm:text-sm text-gray-700 dark:text-gray-300 space-y-1.5 pl-1 leading-relaxed">
-          <li><strong>Download Reference Photo:</strong> Click the download button on any user request below.</li>
-          <li><strong>Generate in Gemini / Google AI Studio:</strong> Open <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="text-pink-500 underline font-semibold inline-flex items-center gap-1">AI Studio <FaExternalLinkAlt className="text-[10px]" /></a> or Gemini Chat, attach the photo, and paste the <strong>Idle Prompt</strong> or <strong>Speaking Prompt</strong>.</li>
-          <li><strong>Upload Video Files:</strong> Once generated, upload <code className="text-pink-600 dark:text-pink-400 font-mono">idle.mp4</code> and <code className="text-pink-600 dark:text-pink-400 font-mono">speaking.mp4</code> below.</li>
-          <li><strong>Publish:</strong> Click <strong>&quot;Publish &amp; Make Live&quot;</strong> — the companion instantly becomes active for the creator user, and an email notification is automatically sent!</li>
-        </ol>
-      </div>
 
-      {/* ── SEARCH & USER-WISE FILTERS ────────────────────────────────────────── */}
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md p-4 rounded-2xl border border-gray-200/80 dark:border-gray-800 shadow-sm mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
-        {/* Search Bar */}
-        <div className="w-full md:w-80">
+        <div className="w-full md:w-72">
           <Input
-            placeholder="Search user email, name, companion..."
+            placeholder="Search by name, role, email..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             startContent={<FaSearch className="text-gray-400 text-xs" />}
             size="sm"
             variant="bordered"
-            isClearable
-            onClear={() => setSearchQuery('')}
+            classNames={{
+              input: '!text-white text-xs',
+              inputWrapper: '!bg-gray-900/90 !border-white/10 hover:!border-purple-400',
+            }}
           />
-        </div>
-
-        {/* Filter Buttons */}
-        <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto">
-          <button
-            onClick={() => setFilterCategory('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              filterCategory === 'all'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
-            }`}
-          >
-            All ({companions.length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('generating')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-              filterCategory === 'generating'
-                ? 'bg-amber-500 text-white shadow-md'
-                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'
-            }`}
-          >
-            <FaClock className="text-xs" />
-            In Progress ({inProgressCount})
-          </button>
-          <button
-            onClick={() => setFilterCategory('ready')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-              filterCategory === 'ready'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
-            }`}
-          >
-            <FaCheckCircle className="text-xs" />
-            Live &amp; Ready ({readyCount})
-          </button>
-          <button
-            onClick={() => setFilterCategory('private')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-              filterCategory === 'private'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20'
-            }`}
-          >
-            <FaLock className="text-xs" />
-            User-Private ({companions.filter(c => c.isCustom && !c.isGlobal).length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('global')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-              filterCategory === 'global'
-                ? 'bg-blue-600 text-white shadow-md'
-                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-            }`}
-          >
-            <FaGlobe className="text-xs" />
-            Global ({companions.filter(c => c.isGlobal).length})
-          </button>
-          <button
-            onClick={() => setFilterCategory('inactive')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 ${
-              filterCategory === 'inactive'
-                ? 'bg-red-600 text-white shadow-md'
-                : 'bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20'
-            }`}
-          >
-            <FaEyeSlash className="text-xs" />
-            Inactive ({inactiveCount})
-          </button>
         </div>
       </div>
 
-      {/* ── COMPANIONS LIST ─────────────────────────────────────────────────── */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-gray-50 dark:bg-gray-900 rounded-3xl border border-dashed border-gray-300 dark:border-gray-800">
-          <HiPhoto className="text-4xl text-gray-400 mx-auto mb-2" />
-          <h3 className="text-base font-bold text-gray-700 dark:text-gray-200">No matching companion requests found</h3>
-          <p className="text-xs text-gray-400 mt-1">
-            Try adjusting your search query or filter category.
-          </p>
+      {/* ── COMPANION CARDS LIST ───────────────────────────────────────────── */}
+      {loading ? (
+        <div className="py-20 text-center text-gray-400 space-y-3">
+          <FaSync className="animate-spin text-3xl mx-auto text-purple-400" />
+          <p className="text-sm font-medium">Loading companion cards...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-20 text-center text-gray-500">
+          <p className="text-base font-bold">No companions matched your filter</p>
         </div>
       ) : (
         <div className="space-y-6">
           {filtered.map((item) => {
             const isReady = item.status === 'ready';
-            const isActive = item.isActive !== false;
-            const isGlobal = !!item.isGlobal;
+            const idleClipUrl = item.videoClips?.idle || `/videos/${item.id}/idle.mp4`;
+            const speakingClipUrl = item.videoClips?.speaking || `/videos/${item.id}/speaking.mp4`;
 
             return (
               <Card
                 key={item.id}
-                className={`overflow-hidden border transition-all ${
-                  !isActive
-                    ? 'border-red-400/40 bg-red-50/20 dark:bg-red-950/10 opacity-80'
-                    : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900'
-                } shadow-lg rounded-3xl`}
+                className="bg-gray-900/80 border border-white/10 shadow-2xl rounded-3xl overflow-hidden"
               >
-                <CardBody className="p-6">
-                  {/* Top Bar on Card: Creator Info & Global/Active Badges */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-100 dark:border-gray-800">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-50 dark:bg-purple-950/60 border border-purple-200/60 dark:border-purple-800/60 text-xs font-semibold text-purple-800 dark:text-purple-300">
-                        <FaUser className="text-purple-500 text-[11px]" />
-                        <span>Creator: <strong>{item.userName || 'Anonymous'}</strong></span>
-                        {item.userEmail && (
-                          <span className="text-gray-500 text-[11px] flex items-center gap-1 ml-1">
-                            <FaEnvelope className="text-[10px]" /> {item.userEmail}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Visibility Badge */}
-                      {isGlobal ? (
-                        <Chip size="sm" color="primary" variant="flat" className="text-[11px] font-bold" startContent={<FaGlobe className="text-xs" />}>
-                          Global (Visible to All Users)
-                        </Chip>
-                      ) : (
-                        <Chip size="sm" color="secondary" variant="flat" className="text-[11px] font-bold" startContent={<FaLock className="text-xs" />}>
-                          Private (Creator User Only)
-                        </Chip>
+                <CardBody className="p-5 md:p-6 space-y-5">
+                  {/* Top Bar: User Owner & Visibility Toggles */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {item.userName && (
+                        <span className="flex items-center gap-1.5 font-bold text-purple-300 bg-purple-500/10 px-2.5 py-1 rounded-full border border-purple-500/20">
+                          <FaUser className="text-pink-400 text-[10px]" />
+                          <span>Creator: {item.userName}</span>
+                          {item.userEmail && <span className="text-gray-400">({item.userEmail})</span>}
+                        </span>
                       )}
-
-                      {/* Active / Inactive Badge */}
-                      {!isActive && (
-                        <Chip size="sm" color="danger" variant="flat" className="text-[11px] font-bold" startContent={<FaEyeSlash className="text-xs" />}>
-                          INACTIVE (Buttons disabled on user side)
-                        </Chip>
-                      )}
+                      <span className="flex items-center gap-1.5 font-semibold text-gray-400 bg-white/5 px-2.5 py-1 rounded-full">
+                        {item.isGlobal ? <FaGlobe className="text-emerald-400" /> : <FaLock className="text-amber-400" />}
+                        <span>{item.isGlobal ? 'Global Persona' : 'Private (Creator Only)'}</span>
+                      </span>
                     </div>
 
-                    {/* Admin Toggle Controls */}
                     <div className="flex items-center gap-4">
-                      {/* Global Toggle */}
-                      {item.isCustom && (
-                        <div className="flex items-center gap-2 text-xs font-semibold select-none">
-                          <span className="text-gray-600 dark:text-gray-400">Global Visibility:</span>
-                          <Switch
-                            size="sm"
-                            color="primary"
-                            isSelected={isGlobal}
-                            onValueChange={() => handleToggleGlobal(item.id, isGlobal)}
-                          />
-                        </div>
-                      )}
-
-                      {/* Active/Inactive Toggle */}
-                      <div className="flex items-center gap-2 text-xs font-semibold select-none">
-                        <span className={isActive ? "text-emerald-600 font-bold" : "text-red-500 font-bold"}>
-                          {isActive ? "Active (Live)" : "Inactive"}
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">Global:</span>
+                        <Switch
+                          size="sm"
+                          color="secondary"
+                          isSelected={item.isGlobal ?? false}
+                          onValueChange={() => handleToggleGlobal(item.id, item.isGlobal ?? false)}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={item.isActive !== false ? 'text-emerald-400 font-bold' : 'text-gray-500'}>
+                          Active (Live):
                         </span>
                         <Switch
                           size="sm"
                           color="success"
-                          isSelected={isActive}
-                          onValueChange={() => handleToggleActive(item.id, isActive)}
+                          isSelected={item.isActive !== false}
+                          onValueChange={() => handleToggleActive(item.id, item.isActive !== false)}
                         />
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* Column 1: Reference Photo & Identity (3 cols) */}
-                    <div className="lg:col-span-3 flex flex-col items-center sm:items-start text-center sm:text-left space-y-3">
-                      <div className="relative w-36 h-36 rounded-2xl overflow-hidden shadow-lg border-2 border-purple-500/40 flex-shrink-0 bg-gray-100 dark:bg-gray-800">
+                  {/* Main 3-Column Layout */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Column 1: Avatar & Reference Photos Gallery (3 cols) */}
+                    <div className="lg:col-span-3 space-y-4">
+                      <div className="relative w-full aspect-square max-w-[220px] mx-auto rounded-2xl overflow-hidden border-2 border-purple-500/30 shadow-lg">
                         <Image
                           src={item.avatarImage || '/images/custom_user_companion.jpeg'}
                           alt={item.name}
                           fill
                           className="object-cover"
                         />
-                      </div>
-
-                      <div className="space-y-1 w-full">
-                        <div className="flex items-center justify-center sm:justify-start gap-2">
-                          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                            {item.name}, {item.age}
-                          </h3>
-                          <Chip size="sm" variant="flat" color={item.gender === 'man' ? 'primary' : 'danger'} className="text-[10px] uppercase font-bold">
-                            {item.gender}
+                        <div className="absolute top-2 right-2">
+                          <Chip
+                            size="sm"
+                            className={
+                              isReady
+                                ? 'bg-emerald-500/90 text-white font-bold text-[10px]'
+                                : 'bg-amber-500/90 text-black font-bold text-[10px]'
+                            }
+                          >
+                            {isReady ? '✓ Video Ready' : '⏳ In Progress'}
                           </Chip>
                         </div>
-                        <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold">{item.title}</p>
-                        <p className="text-[11px] text-gray-500">{item.location}</p>
                       </div>
 
-                      {/* Status Badge */}
-                      <div className="w-full">
-                        {isReady ? (
-                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold">
-                            <FaCheckCircle />
-                            <span>Video Ready</span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold">
-                            <FaClock className="animate-spin" style={{ animationDuration: '6s' }} />
-                            <span>In Progress (Awaiting Videos)</span>
-                          </div>
-                        )}
+                      <div className="text-center">
+                        <h2 className="text-lg font-bold text-white flex items-center justify-center gap-2">
+                          <span>{item.name}, {item.age}</span>
+                          <Chip size="sm" variant="flat" color="secondary" className="text-[10px] uppercase font-bold">
+                            {item.gender}
+                          </Chip>
+                        </h2>
+                        <p className="text-xs text-purple-300 font-medium">{item.title}</p>
+                        <p className="text-[11px] text-gray-400">{item.location}</p>
                       </div>
 
-                      {/* Download Reference Photos Gallery */}
-                      {item.referencePhotos && item.referencePhotos.length > 0 ? (
-                        <div className="w-full space-y-2">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-gray-500">
+                      {/* Reference Photos Grid */}
+                      {item.referencePhotos && item.referencePhotos.length > 0 && (
+                        <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                          <span className="text-[11px] font-bold text-purple-300 flex items-center gap-1.5">
+                            <HiPhoto className="text-pink-400" />
                             <span>Reference Photos ({item.referencePhotos.length})</span>
-                          </div>
-                          <div className="grid grid-cols-3 gap-1.5 w-full">
-                            {item.referencePhotos.map((photoUrl, pIdx) => (
+                          </span>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {item.referencePhotos.map((photoUrl, idx) => (
                               <div
-                                key={pIdx}
-                                className="group relative aspect-square rounded-lg overflow-hidden border border-purple-400/40 bg-black cursor-pointer"
-                                onClick={() => handleDownloadPhoto(photoUrl, `${item.name}-ref-${pIdx + 1}`)}
-                                title="Click to download photo"
+                                key={idx}
+                                onClick={() => handleDownloadPhoto(photoUrl, `${item.name}_ref_${idx + 1}`)}
+                                className="relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-pink-400 cursor-pointer group"
+                                title="Click to Download"
                               >
-                                <Image src={photoUrl} alt={`Ref ${pIdx + 1}`} fill className="object-cover" />
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Image src={photoUrl} alt="Ref" fill className="object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
                                   <FaDownload className="text-white text-xs" />
                                 </div>
-                                <span className="absolute bottom-0 inset-x-0 bg-black/75 text-[8px] font-bold text-white text-center py-0.5">
-                                  {pIdx === 0 ? 'Main' : pIdx === 1 ? 'Close-Up' : `Angle ${pIdx + 1}`}
-                                </span>
                               </div>
                             ))}
                           </div>
-                          <Button
-                            size="sm"
-                            fullWidth
-                            variant="flat"
-                            color="secondary"
-                            className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300"
-                            startContent={<FaDownload className="text-xs" />}
-                            onClick={() => handleDownloadPhoto(item.avatarImage, item.name)}
-                          >
-                            Download Main Portrait
-                          </Button>
                         </div>
-                      ) : (
-                        <Button
-                          size="sm"
-                          fullWidth
-                          variant="flat"
-                          color="secondary"
-                          className="text-xs font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300"
-                          startContent={<FaDownload className="text-xs" />}
-                          onClick={() => handleDownloadPhoto(item.avatarImage, item.name)}
-                        >
-                          Download Photo
-                        </Button>
                       )}
                     </div>
 
-                    {/* Column 2: Prompts & Details (5 cols) */}
+                    {/* Column 2: Personality, Prompts & Voice Cloning Tools (5 cols) */}
                     <div className="lg:col-span-5 space-y-4">
                       {/* Personality */}
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                           Personality &amp; Speaking Vibe
                         </span>
-                        <p className="text-xs text-gray-700 dark:text-gray-300 p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 leading-relaxed">
+                        <p className="text-xs text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 leading-relaxed">
                           {item.personality}
                         </p>
                       </div>
 
-                      {/* User Uploaded Voice Sample (if available) */}
+                      {/* Voice Sample & ElevenLabs Auto-Clone */}
                       {item.voiceSampleUrl && (
-                        <div className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-2">
+                        <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
-                              <FaVolumeUp className="text-pink-500" />
-                              <span>User Voice Sample (For Voice Cloning)</span>
+                            <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                              <FaVolumeUp className="text-pink-400" />
+                              <span>User Voice Sample (Cloning)</span>
                             </span>
                             <a
                               href={item.voiceSampleUrl}
                               download={`${item.name}-voice-sample.webm`}
-                              className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
+                              className="text-[11px] font-bold text-pink-400 hover:underline flex items-center gap-1"
                             >
-                              <FaDownload className="text-[9px]" /> Download Audio
+                              <FaDownload className="text-[9px]" /> Download
                             </a>
                           </div>
+
                           <audio src={item.voiceSampleUrl} controls className="w-full h-8" />
-                          <p className="text-[10px] text-gray-400">
-                            Tip: Upload this audio to ElevenLabs Instant Voice Cloning or PlayHT to generate a cloned voice ID.
-                          </p>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              color="secondary"
+                              className="bg-gradient-to-r from-pink-500 to-purple-600 font-bold text-xs"
+                              startContent={<FaMagic className="text-xs" />}
+                              isLoading={cloningVoiceId === item.id}
+                              onClick={() => handleAutoCloneVoice(item.id)}
+                            >
+                              {item.voiceId ? 'Re-Clone Voice (ElevenLabs)' : '✨ Auto-Clone Voice with ElevenLabs'}
+                            </Button>
+
+                            {item.voiceId && (
+                              <Chip size="sm" color="success" variant="flat" className="text-[11px] font-mono font-bold">
+                                Voice ID: {item.voiceId.slice(0, 10)}...
+                              </Chip>
+                            )}
+                          </div>
+
+                          {/* Custom Voice ID Input */}
+                          <div className="flex items-center gap-2 pt-1">
+                            <Input
+                              placeholder="Or paste ElevenLabs Voice ID..."
+                              size="sm"
+                              value={customVoiceInputs[item.id] ?? item.voiceId ?? ''}
+                              onChange={(e) =>
+                                setCustomVoiceInputs((prev) => ({ ...prev, [item.id]: e.target.value }))
+                              }
+                              classNames={{
+                                input: '!text-white text-xs font-mono',
+                                inputWrapper: '!bg-black/50 !border-white/10 hover:!border-purple-400 h-8',
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              variant="flat"
+                              color="secondary"
+                              className="text-xs font-bold h-8"
+                              onClick={() => handleSaveCustomVoiceId(item.id)}
+                            >
+                              Save
+                            </Button>
+                          </div>
                         </div>
                       )}
 
                       {/* Prompt 1: Idle Video */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-pink-600 dark:text-pink-400 flex items-center gap-1">
-                            <HiSparkles /> 1. Idle Video Prompt (Webcam loop, smiling, no talking)
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-pink-400 flex items-center gap-1">
+                            <HiSparkles /> 1. Idle Video Prompt (Loop, Smiling, Breathing)
                           </span>
                           <Button
                             size="sm"
                             variant="light"
-                            className="h-6 px-2 text-[11px] font-bold text-pink-600 dark:text-pink-400"
+                            className="h-6 px-2 text-[11px] font-bold text-pink-400"
                             startContent={copiedKey === `${item.id}-idle` ? <FaCheck /> : <FaCopy />}
                             onClick={() => handleCopyPrompt(item.prompts?.idle || '', `${item.id}-idle`)}
                           >
                             {copiedKey === `${item.id}-idle` ? 'Copied!' : 'Copy Prompt'}
                           </Button>
                         </div>
-                        <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/80 select-all leading-relaxed">
+                        <div className="text-[11px] font-mono text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 select-all leading-relaxed">
                           {item.prompts?.idle}
                         </div>
                       </div>
@@ -629,121 +627,163 @@ export default function AdminVirtualCompanionsPage() {
                       {/* Prompt 2: Speaking Video */}
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                            <HiSparkles /> 2. Speaking Video Prompt (Talking, expressive lip sync)
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1">
+                            <HiSparkles /> 2. Speaking Video Prompt (Talking, Lip Sync)
                           </span>
                           <Button
                             size="sm"
                             variant="light"
-                            className="h-6 px-2 text-[11px] font-bold text-purple-600 dark:text-purple-400"
+                            className="h-6 px-2 text-[11px] font-bold text-purple-400"
                             startContent={copiedKey === `${item.id}-speaking` ? <FaCheck /> : <FaCopy />}
                             onClick={() => handleCopyPrompt(item.prompts?.speaking || '', `${item.id}-speaking`)}
                           >
                             {copiedKey === `${item.id}-speaking` ? 'Copied!' : 'Copy Prompt'}
                           </Button>
                         </div>
-                        <div className="text-[11px] font-mono text-gray-600 dark:text-gray-300 p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700/80 select-all leading-relaxed">
+                        <div className="text-[11px] font-mono text-gray-300 p-2.5 rounded-xl bg-black/40 border border-white/10 select-all leading-relaxed">
                           {item.prompts?.speaking}
                         </div>
                       </div>
                     </div>
 
-                    {/* Column 3: Video Upload & Publishing Controls (4 cols) */}
-                    <div className="lg:col-span-4 space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                          Upload Custom Video Actions
-                        </span>
+                    {/* Column 3: Video Uploads (Primary + Optional Library) (4 cols) */}
+                    <div className="lg:col-span-4 space-y-4">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                        Upload Video Actions
+                      </span>
 
-                        {/* Idle Video Uploader */}
-                        <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700/60 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold flex items-center gap-1.5">
-                              {item.hasIdleVideo ? (
-                                <FaCheckCircle className="text-emerald-500" />
-                              ) : (
-                                <FaExclamationCircle className="text-amber-500" />
-                              )}
-                              <span>idle.mp4</span>
-                            </span>
-                            {item.hasIdleVideo && (
-                              <button
-                                onClick={() => setActivePreviewVideo({ title: `${item.name} - Idle Action`, url: `/videos/${item.id}/idle.mp4?t=${Date.now()}` })}
-                                className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
-                              >
-                                <FaPlay className="text-[9px]" /> Preview ({Math.round(item.idleVideoSize / 1024)} KB)
-                              </button>
-                            )}
-                          </div>
-
-                          <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-gray-700 border border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-500 cursor-pointer transition-all">
-                            <FaUpload className="text-purple-500 text-xs" />
-                            <span>
-                              {uploadingId === item.id && uploadingType === 'idle'
-                                ? 'Uploading...'
-                                : item.hasIdleVideo
-                                ? 'Replace idle.mp4'
-                                : 'Upload idle.mp4'}
-                            </span>
-                            <input
-                              type="file"
-                              accept="video/mp4,video/*"
-                              disabled={uploadingId === item.id}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleVideoUpload(item.id, 'idle', file);
-                              }}
-                              className="hidden"
-                            />
-                          </label>
+                      {/* 1. Primary Idle Video */}
+                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1.5">
+                            {item.hasIdleVideo ? <FaCheckCircle className="text-emerald-400" /> : <FaExclamationCircle className="text-amber-400" />}
+                            <span>idle.mp4 (Required)</span>
+                          </span>
+                          {item.hasIdleVideo && (
+                            <button
+                              onClick={() => setActivePreviewVideo({ title: `${item.name} - Idle Action`, url: idleClipUrl })}
+                              className="text-[11px] font-bold text-pink-400 hover:underline flex items-center gap-1"
+                            >
+                              <FaPlay className="text-[9px]" /> Preview
+                            </button>
+                          )}
                         </div>
-
-                        {/* Speaking Video Uploader */}
-                        <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700/60 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold flex items-center gap-1.5">
-                              {item.hasSpeakingVideo ? (
-                                <FaCheckCircle className="text-emerald-500" />
-                              ) : (
-                                <FaExclamationCircle className="text-amber-500" />
-                              )}
-                              <span>speaking.mp4</span>
-                            </span>
-                            {item.hasSpeakingVideo && (
-                              <button
-                                onClick={() => setActivePreviewVideo({ title: `${item.name} - Speaking Action`, url: `/videos/${item.id}/speaking.mp4?t=${Date.now()}` })}
-                                className="text-[11px] font-bold text-pink-600 dark:text-pink-400 hover:underline flex items-center gap-1"
-                              >
-                                <FaPlay className="text-[9px]" /> Preview ({Math.round(item.speakingVideoSize / 1024)} KB)
-                              </button>
-                            )}
-                          </div>
-
-                          <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-gray-700 border border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-500 cursor-pointer transition-all">
-                            <FaUpload className="text-purple-500 text-xs" />
-                            <span>
-                              {uploadingId === item.id && uploadingType === 'speaking'
-                                ? 'Uploading...'
-                                : item.hasSpeakingVideo
-                                ? 'Replace speaking.mp4'
-                                : 'Upload speaking.mp4'}
-                            </span>
-                            <input
-                              type="file"
-                              accept="video/mp4,video/*"
-                              disabled={uploadingId === item.id}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) handleVideoUpload(item.id, 'speaking', file);
-                              }}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
+                        <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                          <FaUpload className="text-purple-400 text-xs" />
+                          <span>{uploadingId === item.id && uploadingType === 'idle' ? 'Uploading...' : 'Upload / Replace idle.mp4'}</span>
+                          <input
+                            type="file"
+                            accept="video/mp4,video/*"
+                            disabled={uploadingId === item.id}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleVideoUpload(item.id, 'idle', file);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
                       </div>
 
+                      {/* 2. Primary Speaking Video */}
+                      <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold flex items-center gap-1.5">
+                            {item.hasSpeakingVideo ? <FaCheckCircle className="text-emerald-400" /> : <FaExclamationCircle className="text-amber-400" />}
+                            <span>speaking.mp4 (Required)</span>
+                          </span>
+                          {item.hasSpeakingVideo && (
+                            <button
+                              onClick={() => setActivePreviewVideo({ title: `${item.name} - Speaking Action`, url: speakingClipUrl })}
+                              className="text-[11px] font-bold text-pink-400 hover:underline flex items-center gap-1"
+                            >
+                              <FaPlay className="text-[9px]" /> Preview
+                            </button>
+                          )}
+                        </div>
+                        <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                          <FaUpload className="text-purple-400 text-xs" />
+                          <span>{uploadingId === item.id && uploadingType === 'speaking' ? 'Uploading...' : 'Upload / Replace speaking.mp4'}</span>
+                          <input
+                            type="file"
+                            accept="video/mp4,video/*"
+                            disabled={uploadingId === item.id}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleVideoUpload(item.id, 'speaking', file);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+
+                      {/* 3. Optional Video Action Library (Collapsible) */}
+                      <Accordion variant="bordered" className="border-white/10">
+                        <AccordionItem
+                          key="optional"
+                          aria-label="Optional Video Actions"
+                          title={
+                            <span className="text-xs font-bold text-purple-300">
+                              + Optional Action Videos ({OPTIONAL_ACTIONS.length})
+                            </span>
+                          }
+                          subtitle={<span className="text-[10px] text-gray-400">Chai, Kiss, Laugh, Blush, Wave, Outfit...</span>}
+                        >
+                          <div className="space-y-3 pt-2">
+                            {OPTIONAL_ACTIONS.map((action) => {
+                              const existingUrl = item.videoClips?.[action.key];
+                              const promptText = `Close-up interactive video of ${item.name} (${action.desc}), smiling naturally at camera in cozy room, high realism 4k video loop.`;
+
+                              return (
+                                <div key={action.key} className="p-2.5 rounded-xl bg-black/40 border border-white/10 space-y-1.5 text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-gray-200">{action.label}</span>
+                                    <div className="flex items-center gap-2">
+                                      {existingUrl && (
+                                        <button
+                                          onClick={() => setActivePreviewVideo({ title: `${item.name} - ${action.label}`, url: existingUrl })}
+                                          className="text-[10px] font-bold text-pink-400 hover:underline flex items-center gap-1"
+                                        >
+                                          <FaPlay className="text-[8px]" /> Play
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleCopyPrompt(promptText, `${item.id}-${action.key}`)}
+                                        className="text-[10px] text-purple-300 hover:underline flex items-center gap-1"
+                                      >
+                                        {copiedKey === `${item.id}-${action.key}` ? 'Copied!' : 'Copy Prompt'}
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <label className="flex items-center justify-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-white/5 border border-dashed border-white/20 hover:border-purple-400 cursor-pointer transition-all">
+                                    <FaUpload className="text-purple-400 text-[10px]" />
+                                    <span>
+                                      {uploadingId === item.id && uploadingType === action.key
+                                        ? 'Uploading...'
+                                        : existingUrl
+                                        ? `Replace ${action.key}.mp4`
+                                        : `Upload ${action.key}.mp4`}
+                                    </span>
+                                    <input
+                                      type="file"
+                                      accept="video/mp4,video/*"
+                                      disabled={uploadingId === item.id}
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleVideoUpload(item.id, action.key, file);
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </AccordionItem>
+                      </Accordion>
+
                       {/* Publishing / Status Actions */}
-                      <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                      <div className="pt-2 border-t border-white/10 space-y-2">
                         {isReady ? (
                           <div className="flex gap-2">
                             <Button
@@ -780,20 +820,18 @@ export default function AdminVirtualCompanionsPage() {
                         )}
 
                         {item.isCustom && (
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              fullWidth
-                              variant="light"
-                              color="danger"
-                              isLoading={deletingId === item.id}
-                              className="text-xs font-bold text-red-500"
-                              startContent={deletingId !== item.id && <FaTrash className="text-xs" />}
-                              onClick={() => handleDelete(item.id, item.name)}
-                            >
-                              {deletingId === item.id ? 'Deleting Request...' : 'Reject & Delete Request'}
-                            </Button>
-                          </div>
+                          <Button
+                            size="sm"
+                            fullWidth
+                            variant="light"
+                            color="danger"
+                            isLoading={deletingId === item.id}
+                            className="text-xs font-bold text-red-400"
+                            startContent={deletingId !== item.id && <FaTrash className="text-xs" />}
+                            onClick={() => handleDelete(item.id, item.name)}
+                          >
+                            {deletingId === item.id ? 'Deleting Request...' : 'Reject & Delete Request'}
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -810,10 +848,14 @@ export default function AdminVirtualCompanionsPage() {
         isOpen={!!activePreviewVideo}
         onClose={() => setActivePreviewVideo(null)}
         size="2xl"
-        className="bg-gray-950 text-white border border-purple-500/30 rounded-3xl"
+        classNames={{
+          base: 'bg-gray-950 text-white border border-purple-500/30 rounded-3xl',
+          header: 'border-b border-white/10',
+          footer: 'border-t border-white/10',
+        }}
       >
         <ModalContent>
-          <ModalHeader className="border-b border-white/10">
+          <ModalHeader>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
               <FaVideo className="text-pink-400" />
               <span>{activePreviewVideo?.title}</span>
@@ -826,18 +868,18 @@ export default function AdminVirtualCompanionsPage() {
                 autoPlay
                 loop
                 controls
-                className="w-full max-h-[480px] rounded-2xl object-cover bg-black"
+                className="w-full max-h-[480px] rounded-2xl object-cover bg-black shadow-2xl"
               />
             )}
           </ModalBody>
-          <ModalFooter className="border-t border-white/10">
+          <ModalFooter>
             <Button
               size="sm"
               color="primary"
               className="bg-purple-600 font-bold"
               onClick={() => setActivePreviewVideo(null)}
             >
-              Close
+              Close Preview
             </Button>
           </ModalFooter>
         </ModalContent>

@@ -329,7 +329,7 @@ export function useVirtualCall(persona: VirtualPersona) {
     setAudioLevel(0);
   }, []);
 
-  // ── 5. SPEAK TEXT (NEURAL TTS + WEBSPEECH FALLBACK WITH SAFE TOKENS) ─────────
+  // ── 5. SPEAK TEXT (NEURAL TTS + WEBSPEECH FALLBACK WITH PRECISE SYNC) ────────
 
   const speakText = useCallback(
     async (text: string, explicitAction?: string) => {
@@ -342,43 +342,47 @@ export function useVirtualCall(persona: VirtualPersona) {
       const currentGenId = speechGenIdRef.current;
       isSpeakingRef.current = true;
       lastCompanionSpeechRef.current = text.toLowerCase();
-      setIsSpeaking(true);
-      setCurrentCaption(text);
 
-      addLog('TTS', `🔊 Starting speech: "${text.slice(0, 50)}..." [GenID: ${currentGenId}]`, 'info');
-
-      // Set video action
-      if (!explicitAction || explicitAction === 'speaking' || explicitAction === 'idle') {
-        setAvatarAction('speaking');
-        currentExplicitActionRef.current = null;
-        addLog('AVATAR', 'Set avatar action to "speaking"', 'info');
-      } else {
-        currentExplicitActionRef.current = explicitAction;
-        setAvatarAction(explicitAction as AvatarActionType);
-        addLog('AVATAR', `Set avatar action to "${explicitAction}"`, 'info');
-      }
+      addLog('TTS', `🔊 Preparing speech: "${text.slice(0, 50)}..." [GenID: ${currentGenId}]`, 'info');
 
       // Stop speech recognition while companion speaks to prevent acoustic feedback
       if (recognitionRef.current && recognitionStateRef.current === 'listening') {
         try {
-          addLog('STT', 'Pausing speech recognition while AI companion is speaking...', 'info');
+          addLog('STT', 'Pausing speech recognition while AI companion is preparing speech...', 'info');
           recognitionRef.current.abort();
         } catch (_) {}
       }
 
-      // Animate audio waveform
-      let frame = 0;
-      const animateAudio = () => {
+      // Helper to activate visuals (captions + avatar movement + waveform) ONLY when audio actually plays
+      const triggerSynchronizedPlayback = (spokenText: string, chosenAction?: string) => {
         if (speechGenIdRef.current !== currentGenId) return;
-        frame++;
-        setAudioLevel(Math.abs(Math.sin(frame * 0.22)) * 0.8 + 0.2);
+
+        setIsSpeaking(true);
+        setCurrentCaption(spokenText);
+
+        if (!chosenAction || chosenAction === 'speaking' || chosenAction === 'idle') {
+          setAvatarAction('speaking');
+          currentExplicitActionRef.current = null;
+          addLog('AVATAR', 'Avatar started speaking action in sync with audio', 'info');
+        } else {
+          currentExplicitActionRef.current = chosenAction;
+          setAvatarAction(chosenAction as AvatarActionType);
+          addLog('AVATAR', `Avatar started "${chosenAction}" action in sync with audio`, 'info');
+        }
+
+        // Animate audio waveform
+        let frame = 0;
+        const animateAudio = () => {
+          if (speechGenIdRef.current !== currentGenId) return;
+          frame++;
+          setAudioLevel(Math.abs(Math.sin(frame * 0.22)) * 0.8 + 0.2);
+          audioAnimationRef.current = requestAnimationFrame(animateAudio);
+        };
         audioAnimationRef.current = requestAnimationFrame(animateAudio);
       };
-      audioAnimationRef.current = requestAnimationFrame(animateAudio);
 
       // Speech Completion Handler
       const handleSpeechEnd = (callerId: number, source: string) => {
-        // If this callback belongs to an old speech utterance that was already superseded, ignore!
         if (speechGenIdRef.current !== callerId) {
           addLog('TTS', `Ignoring stale speechEnd callback from ${source} [GenID: ${callerId}]`, 'warn');
           return;
@@ -423,7 +427,7 @@ export function useVirtualCall(persona: VirtualPersona) {
         }, 350);
       };
 
-      // Set safety watchdog timeout (prevents STT freeze if audio stalls or onend fails)
+      // Set safety watchdog timeout (prevents STT freeze if audio stalls)
       const estimatedDurationMs = Math.max(5000, Math.min(25000, text.length * 85 + 2000));
       speechSafetyWatchdogRef.current = setTimeout(() => {
         if (speechGenIdRef.current === currentGenId && isSpeakingRef.current) {
@@ -475,7 +479,6 @@ export function useVirtualCall(persona: VirtualPersona) {
             const femaleKeywords = ['aditi', 'kajal', 'veena', 'lekha', 'swara', 'heera', 'samantha', 'victoria', 'karen', 'zira', 'moira', 'tessa', 'fiona', 'serena', 'female', 'woman'];
 
             if (isMan) {
-              // 1. Try Indian / Hindi Male first
               matchedVoice = voices.find((v) => {
                 const name = v.name.toLowerCase();
                 const lang = v.lang.toLowerCase();
@@ -485,7 +488,6 @@ export function useVirtualCall(persona: VirtualPersona) {
                 return isInd && isMale && !isFemale;
               });
 
-              // 2. Try any clear natural Male voice
               if (!matchedVoice) {
                 matchedVoice = voices.find((v) => {
                   const name = v.name.toLowerCase();
@@ -495,7 +497,6 @@ export function useVirtualCall(persona: VirtualPersona) {
                 });
               }
 
-              // 3. Fallback to any voice that is NOT explicitly female
               if (!matchedVoice) {
                 matchedVoice = voices.find((v) => {
                   const name = v.name.toLowerCase();
@@ -503,7 +504,6 @@ export function useVirtualCall(persona: VirtualPersona) {
                 });
               }
             } else {
-              // Female voice selection
               matchedVoice = voices.find((v) => {
                 const name = v.name.toLowerCase();
                 const isFemale = femaleKeywords.some((k) => name.includes(k));
@@ -512,7 +512,6 @@ export function useVirtualCall(persona: VirtualPersona) {
               });
             }
 
-            // Fallback to preferred voice names if specified
             if (!matchedVoice && persona.voiceStyle?.preferredVoiceNames) {
               matchedVoice = voices.find((v) =>
                 persona.voiceStyle.preferredVoiceNames?.some((pref) =>
@@ -537,6 +536,8 @@ export function useVirtualCall(persona: VirtualPersona) {
             handleSpeechEnd(genId, 'webspeech-onerror');
           };
 
+          // Synchronize visual animation with actual speech utterance start
+          triggerSynchronizedPlayback(cleanSpeech, explicitAction);
           addLog('TTS', `Speaking with ${isMan ? '👨 natural male' : '👩 warm female'} voice...`, 'info');
           window.speechSynthesis.speak(utterance);
         } catch (err: any) {
@@ -563,7 +564,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           return;
         }
 
-        if (ttsRes.ok && ttsRes.headers.get('content-type')?.includes('audio')) {
+        if (ttsRes.ok && (ttsRes.headers.get('content-type')?.includes('audio') || ttsRes.headers.get('content-type')?.includes('octet-stream'))) {
           const audioBlob = await ttsRes.blob();
           if (speechGenIdRef.current !== currentGenId) return;
 
@@ -586,6 +587,8 @@ export function useVirtualCall(persona: VirtualPersona) {
 
           addLog('TTS', `Neural TTS stream loaded (${audioBlob.size} bytes). Playing audio...`, 'success');
           try {
+            // Trigger synchronized visual animation at the exact instant audio begins playing
+            triggerSynchronizedPlayback(text, explicitAction);
             await audio.play();
             return;
           } catch (playErr: any) {
@@ -598,7 +601,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           speakWithWebSpeech(text, currentGenId);
         }
       } catch (err: any) {
-        addLog('TTS', `Neural TTS fetch failed (${err.message}), falling back to WebSpeech`, 'warn');
+        addLog('TTS', `Neural TTS request failed (${err.message}), falling back to WebSpeech`, 'warn');
         speakWithWebSpeech(text, currentGenId);
       }
     },
