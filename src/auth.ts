@@ -5,7 +5,7 @@ import authConfig from "./auth.config"
 import Credentials from "next-auth/providers/credentials"
 import { loginSchema } from './lib/schemas/LoginSchema'
 import { getUserByEmail } from './app/actions/userQueries'
-import { compare } from 'bcryptjs'
+import { compare, hash } from 'bcryptjs'
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
     ...authConfig,
@@ -21,7 +21,35 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
                 if (validated.success) {
                     const { email, password } = validated.data;
+                    const normalizedEmail = email.toLowerCase().trim();
 
+                    // Check if credentials match dynamic ADMIN environment variables
+                    const envAdminEmail = (process.env.ADMIN_EMAIL || 'admin@test.com').toLowerCase().trim();
+                    const envAdminPassword = process.env.ADMIN_PASSWORD || 'password';
+
+                    if (normalizedEmail === envAdminEmail && password === envAdminPassword) {
+                        const passwordHash = await hash(password, 10);
+                        const adminUser = await prisma.user.upsert({
+                            where: { email: envAdminEmail },
+                            update: {
+                                role: 'ADMIN',
+                                passwordHash,
+                                profileComplete: true,
+                                emailVerified: new Date(),
+                            },
+                            create: {
+                                email: envAdminEmail,
+                                name: 'Admin',
+                                role: 'ADMIN',
+                                passwordHash,
+                                profileComplete: true,
+                                emailVerified: new Date(),
+                            },
+                        });
+                        return adminUser;
+                    }
+
+                    // Standard user credentials check
                     const user = await getUserByEmail(email);
 
                     if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) return null;

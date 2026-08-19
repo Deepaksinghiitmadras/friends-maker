@@ -79,6 +79,7 @@ export default function AdminVirtualCompanionsPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [uploadingType, setUploadingType] = useState<'idle' | 'speaking' | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activePreviewVideo, setActivePreviewVideo] = useState<{ title: string; url: string } | null>(null);
 
   const fetchCompanions = async () => {
@@ -206,16 +207,19 @@ export default function AdminVirtualCompanionsPage() {
     if (!confirm(`Are you sure you want to reject and completely delete companion "${name}"? This cannot be undone.`)) {
       return;
     }
+    setDeletingId(personaId);
     try {
       const res = await fetch(`/api/admin/virtual-companions?id=${personaId}`, {
         method: 'DELETE',
       });
       const data = await res.json();
       if (data.success) {
-        await fetchCompanions();
+        setCompanions((prev) => prev.filter((c) => c.id !== personaId));
       }
     } catch (err) {
       console.error('Failed to delete companion:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -717,11 +721,12 @@ export default function AdminVirtualCompanionsPage() {
                               fullWidth
                               variant="light"
                               color="danger"
+                              isLoading={deletingId === item.id}
                               className="text-xs font-bold text-red-500"
-                              startContent={<FaTrash className="text-xs" />}
+                              startContent={deletingId !== item.id && <FaTrash className="text-xs" />}
                               onClick={() => handleDelete(item.id, item.name)}
                             >
-                              Reject &amp; Delete Request
+                              {deletingId === item.id ? 'Deleting Request...' : 'Reject & Delete Request'}
                             </Button>
                           </div>
                         )}

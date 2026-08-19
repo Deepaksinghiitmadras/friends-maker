@@ -109,3 +109,33 @@ enum Role {
   ADMIN
   MEMBER
 }
+
+model CustomPersona {
+  id              String   @id
+  name            String
+  age             Int      @default(26)
+  gender          String   @default("woman")
+  title           String   @default("AI Companion")
+  location        String   @default("Mumbai / Delhi")
+  tagline         String   @default("")
+  avatarImage     String
+  personality     String
+  interests       String[] @default(["Music", "Chai Dates", "Heart-to-Heart Talks"])
+  languages       String[] @default(["Hindi", "English", "Hinglish"])
+  greeting        String
+  status          String   @default("generating")
+  isCustom        Boolean  @default(true)
+  userId          String?
+  userEmail       String?
+  userName        String?
+  isGlobal        Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  systemPrompt    String   @default("")
+  videoClips      Json?
+  voiceStyle      Json?
+  traits          Json?
+  sampleQuestions String[] @default([])
+}
+

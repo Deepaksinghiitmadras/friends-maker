@@ -28,13 +28,17 @@ export async function createMessage(recipientUserId: string, data: MessageSchema
         });
         const messageDto = mapMessageToMessageDto(message);
 
-        await pusherServer.trigger(createChatId(userId, recipientUserId), 'message:new', messageDto);
-        await pusherServer.trigger(`private-${recipientUserId}`, 'message:new', messageDto);
+        try {
+            await pusherServer.trigger(createChatId(userId, recipientUserId), 'message:new', messageDto);
+            await pusherServer.trigger(`private-${recipientUserId}`, 'message:new', messageDto);
+        } catch (pusherErr) {
+            console.warn('[PUSHER EMIT WARNING]', pusherErr);
+        }
 
         return { status: 'success', data: messageDto };
-    } catch (error) {
-        console.log(error);
-        return { status: 'error', error: 'Something went wrong' }
+    } catch (error: any) {
+        console.log('[CREATE MESSAGE ERROR]', error);
+        return { status: 'error', error: error?.message || 'Something went wrong' }
     }
 }
 

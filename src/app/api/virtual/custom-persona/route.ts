@@ -8,7 +8,7 @@ import {
   getAllPersonas,
   VirtualPersona,
 } from '@/lib/virtualPersonas';
-import { saveCustomPersonaToFile, loadCustomPersonasFromFile } from '@/lib/customPersonasStore';
+import { saveCustomPersonaToFile, loadCustomPersonasAsync } from '@/lib/customPersonasStore';
 import { sendAdminNewCompanionNotificationEmail } from '@/lib/mail';
 
 export async function GET() {
@@ -18,7 +18,7 @@ export async function GET() {
     const currentUserEmail = session?.user?.email;
     const isAdmin = (session?.user as any)?.role === 'ADMIN';
 
-    const customList = loadCustomPersonasFromFile();
+    const customList = await loadCustomPersonasAsync();
     for (const p of customList) {
       registerCustomPersona(p);
     }

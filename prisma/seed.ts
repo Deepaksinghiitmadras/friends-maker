@@ -43,12 +43,17 @@ async function seedMembers() {
 }
 
 async function seedAdmin() {
-    const passwordHash = await hash('password', 10);
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@test.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'password';
+    const passwordHash = await hash(adminPassword, 10);
     await prisma.user.upsert({
-        where: { email: 'admin@test.com' },
-        update: {},
+        where: { email: adminEmail },
+        update: {
+            role: 'ADMIN',
+            passwordHash,
+        },
         create: {
-            email: 'admin@test.com',
+            email: adminEmail,
             emailVerified: new Date(),
             name: 'Admin',
             passwordHash,

@@ -1,6 +1,5 @@
 export const publicRoutes = [
     '/',
-    '/virtual',
     '/logout',
 ];
 
