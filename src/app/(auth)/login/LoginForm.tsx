@@ -7,7 +7,7 @@ import {
   CardHeader,
   Input,
 } from "@nextui-org/react";
-import React from "react";
+import React, { useState } from "react";
 import { GiPadlock } from "react-icons/gi";
 import { useForm } from "react-hook-form";
 import {
@@ -15,13 +15,18 @@ import {
   LoginSchema,
 } from "@/lib/schemas/LoginSchema";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { signInUser } from "@/app/actions/authActions";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "react-toastify";
 import Link from "next/link";
 import SocialLogin from "./SocialLogin";
+import { signIn } from "next-auth/react";
 
 export default function LoginForm() {
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/members";
+
   const {
     register,
     handleSubmit,
@@ -31,24 +36,25 @@ export default function LoginForm() {
     mode: "all",
   });
 
-  const router = useRouter();
-
   const onSubmit = async (data: LoginSchema) => {
+    setIsLoading(true);
     try {
-      const result = await signInUser(data);
+      const res = await signIn("credentials", {
+        email: data.email,
+        password: data.password,
+        redirect: false,
+      });
 
-      // If signIn succeeds via NEXT_REDIRECT, result may be undefined
-      if (result?.status === "success") {
-        router.push("/members");
+      if (res?.error) {
+        toast.error("Invalid email or password");
+      } else {
+        router.push(callbackUrl);
         router.refresh();
-      } else if (result?.status === "error") {
-        toast.error(result.error as string);
       }
-    } catch (error) {
-      // NEXT_REDIRECT from successful signIn throws on the client side —
-      // this is expected behavior in NextAuth v5 beta server actions.
-      // The redirect will happen automatically, so we just let it propagate.
-      throw error;
+    } catch (error: any) {
+      toast.error(error?.message || "Login failed. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -95,7 +101,8 @@ export default function LoginForm() {
               fullWidth
               color="default"
               type="submit"
-              isDisabled={!isValid}
+              isDisabled={!isValid || isLoading}
+              isLoading={isLoading}
             >
               Login
             </Button>
@@ -111,3 +118,4 @@ export default function LoginForm() {
     </Card>
   );
 }
+

@@ -24,7 +24,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                     const normalizedEmail = email.toLowerCase().trim();
 
                     // Check if credentials match dynamic ADMIN environment variables
-                    const envAdminEmail = (process.env.ADMIN_EMAIL || 'admin@test.com').toLowerCase().trim();
+                    const envAdminEmail = (process.env.ADMIN_EMAIL || process.env.NODEMAILER_EMAIL || 'admin@test.com').toLowerCase().trim();
                     const envAdminPassword = process.env.ADMIN_PASSWORD || 'password';
 
                     if (normalizedEmail === envAdminEmail && password === envAdminPassword) {
@@ -49,8 +49,15 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                         return adminUser;
                     }
 
-                    // Standard user credentials check
-                    const user = await getUserByEmail(email);
+                    // Standard user credentials check (case-insensitive)
+                    const user = await prisma.user.findFirst({
+                        where: {
+                            email: {
+                                equals: normalizedEmail,
+                                mode: 'insensitive'
+                            }
+                        }
+                    });
 
                     if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) return null;
 
