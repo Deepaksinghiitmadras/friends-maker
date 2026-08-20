@@ -11,60 +11,66 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     ...authConfig,
     adapter: PrismaAdapter(prisma),
     session: { strategy: "jwt" },
-    secret: process.env.AUTH_SECRET,
+    secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || "t1oL8RX2YzU0ZjHhzZXZGw9obVyepmbHx1uPDj0xApqB",
+    trustHost: true,
     providers: [
         ...authConfig.providers,
         Credentials({
             name: 'credentials',
             async authorize(creds) {
-                const validated = loginSchema.safeParse(creds);
+                try {
+                    const validated = loginSchema.safeParse(creds);
 
-                if (validated.success) {
-                    const { email, password } = validated.data;
-                    const normalizedEmail = email.toLowerCase().trim();
+                    if (validated.success) {
+                        const { email, password } = validated.data;
+                        const normalizedEmail = email.toLowerCase().trim();
 
-                    // Check if credentials match dynamic ADMIN environment variables
-                    const envAdminEmail = (process.env.ADMIN_EMAIL || process.env.NODEMAILER_EMAIL || 'admin@test.com').toLowerCase().trim();
-                    const envAdminPassword = process.env.ADMIN_PASSWORD || 'password';
+                        // Check if credentials match dynamic ADMIN environment variables
+                        const envAdminEmail = (process.env.ADMIN_EMAIL || process.env.NODEMAILER_EMAIL || 'admin@test.com').toLowerCase().trim();
+                        const envAdminPassword = process.env.ADMIN_PASSWORD || 'password';
 
-                    if (normalizedEmail === envAdminEmail && password === envAdminPassword) {
-                        const passwordHash = await hash(password, 10);
-                        const adminUser = await prisma.user.upsert({
-                            where: { email: envAdminEmail },
-                            update: {
-                                role: 'ADMIN',
-                                passwordHash,
-                                profileComplete: true,
-                                emailVerified: new Date(),
-                            },
-                            create: {
-                                email: envAdminEmail,
-                                name: 'Admin',
-                                role: 'ADMIN',
-                                passwordHash,
-                                profileComplete: true,
-                                emailVerified: new Date(),
-                            },
+                        if (normalizedEmail === envAdminEmail && password === envAdminPassword) {
+                            const passwordHash = await hash(password, 10);
+                            const adminUser = await prisma.user.upsert({
+                                where: { email: envAdminEmail },
+                                update: {
+                                    role: 'ADMIN',
+                                    passwordHash,
+                                    profileComplete: true,
+                                    emailVerified: new Date(),
+                                },
+                                create: {
+                                    email: envAdminEmail,
+                                    name: 'Admin',
+                                    role: 'ADMIN',
+                                    passwordHash,
+                                    profileComplete: true,
+                                    emailVerified: new Date(),
+                                },
+                            });
+                            return adminUser;
+                        }
+
+                        // Standard user credentials check (case-insensitive)
+                        const user = await prisma.user.findFirst({
+                            where: {
+                                email: {
+                                    equals: normalizedEmail,
+                                    mode: 'insensitive'
+                                }
+                            }
                         });
-                        return adminUser;
+
+                        if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) return null;
+
+                        return user;
                     }
 
-                    // Standard user credentials check (case-insensitive)
-                    const user = await prisma.user.findFirst({
-                        where: {
-                            email: {
-                                equals: normalizedEmail,
-                                mode: 'insensitive'
-                            }
-                        }
-                    });
-
-                    if (!user || !user.passwordHash || !(await compare(password, user.passwordHash))) return null;
-
-                    return user;
+                    return null;
+                } catch (error) {
+                    console.error('[AUTH ERROR in authorize]', error);
+                    return null;
                 }
-
-                return null;
             }
         })
     ]
