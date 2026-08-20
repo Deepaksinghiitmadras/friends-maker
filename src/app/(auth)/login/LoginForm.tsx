@@ -34,12 +34,21 @@ export default function LoginForm() {
   const router = useRouter();
 
   const onSubmit = async (data: LoginSchema) => {
-    const result = await signInUser(data);
-    if (result.status === "success") {
-      router.push("/members");
-      router.refresh();
-    } else {
-      toast.error(result.error as string);
+    try {
+      const result = await signInUser(data);
+
+      // If signIn succeeds via NEXT_REDIRECT, result may be undefined
+      if (result?.status === "success") {
+        router.push("/members");
+        router.refresh();
+      } else if (result?.status === "error") {
+        toast.error(result.error as string);
+      }
+    } catch (error) {
+      // NEXT_REDIRECT from successful signIn throws on the client side —
+      // this is expected behavior in NextAuth v5 beta server actions.
+      // The redirect will happen automatically, so we just let it propagate.
+      throw error;
     }
   };
 

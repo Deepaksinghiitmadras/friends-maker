@@ -43,7 +43,10 @@ export async function signInUser(data: LoginSchema): Promise<ActionResult<string
                     return { status: 'error', error: 'Something went wrong' }
             }
         } else {
-            return { status: 'error', error: 'Something else went wrong' }
+            // Re-throw non-AuthError errors (e.g. NEXT_REDIRECT from successful signIn).
+            // In NextAuth v5 beta, signIn() throws a redirect error on success even with
+            // redirect:false in server actions. Catching it causes a 500 crash.
+            throw error;
         }
     }
 }
