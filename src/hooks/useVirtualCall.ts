@@ -86,6 +86,11 @@ export function useVirtualCall(persona: VirtualPersona) {
   const actionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
+  // Track last processed speech result index to prevent re-processing old finals
+  const lastProcessedResultIndexRef = useRef<number>(0);
+  // Guard against sending the exact same text to AI twice in a row
+  const lastSentMessageRef = useRef<string>('');
+
   // Anti-Double-Sound Generation Token
   const speechGenIdRef = useRef<number>(0);
   const speechSafetyWatchdogRef = useRef<NodeJS.Timeout | null>(null);
@@ -641,6 +646,14 @@ export function useVirtualCall(persona: VirtualPersona) {
         return;
       }
 
+      // Guard: skip if this is the exact same text we just sent
+      const normalized = messageText.trim().toLowerCase();
+      if (normalized === lastSentMessageRef.current) {
+        addLog('AI', `Skipped duplicate message: "${messageText.trim().slice(0, 40)}..."`, 'warn');
+        return;
+      }
+      lastSentMessageRef.current = normalized;
+
       const cleanedText = messageText.trim();
       addLog('AI', `🧠 User message submitted: "${cleanedText}"`, 'info');
 
@@ -782,6 +795,7 @@ export function useVirtualCall(persona: VirtualPersona) {
           recognitionStateRef.current = 'listening';
           setIsListening(true);
           accumulatedSpeechRef.current = '';
+          lastProcessedResultIndexRef.current = 0;
           addLog('STT', `🟢 Microphone is ACTIVE (${recognition.lang}) and listening for user voice...`, 'success');
         } else {
           try {
@@ -800,48 +814,62 @@ export function useVirtualCall(persona: VirtualPersona) {
         }
 
         let interimTranscript = '';
-        let finalTranscript = '';
+        let newFinalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) finalTranscript += transcript + ' ';
-          else interimTranscript += transcript;
-        }
-
-        const currentHeard = (finalTranscript || interimTranscript).trim();
-        if (currentHeard) {
-          // Acoustic echo filter against companion's last spoken text
-          const lowerHeard = currentHeard.toLowerCase();
-          const lowerCompanion = lastCompanionSpeechRef.current;
-          if (
-            lowerCompanion &&
-            lowerHeard.length > 6 &&
-            (lowerCompanion.includes(lowerHeard) || lowerHeard.includes(lowerCompanion))
-          ) {
-            addLog('ECHO', `Acoustic filter filtered companion echo: "${currentHeard}"`, 'warn');
-            return;
-          }
-
-          accumulatedSpeechRef.current = currentHeard;
-          setCurrentCaption(`Listening: "${currentHeard}"`);
-          addLog('STT', `🎙️ Heard (${recognition.lang}): "${currentHeard}"`, 'info');
-
-          // Debounce: send message after 1.2s pause in speech
-          if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
-          speechDebounceTimerRef.current = setTimeout(() => {
-            const textToSend = accumulatedSpeechRef.current.trim();
-            if (
-              textToSend &&
-              textToSend.length > 1 &&
-              !isSpeakingRef.current &&
-              !isProcessingRef.current
-            ) {
-              addLog('STT', `🚀 User speech finalized: "${textToSend}". Dispatching to AI...`, 'success');
-              accumulatedSpeechRef.current = '';
-              sendUserMessageRef.current(textToSend);
+          if (event.results[i].isFinal) {
+            // Only process final results we haven't seen yet
+            if (i >= lastProcessedResultIndexRef.current) {
+              newFinalTranscript += transcript + ' ';
+              lastProcessedResultIndexRef.current = i + 1;
             }
-          }, 1200);
+          } else {
+            interimTranscript += transcript;
+          }
         }
+
+        // Use new finals if available, otherwise use interim for live caption
+        const displayText = (newFinalTranscript || interimTranscript).trim();
+        if (!displayText) return;
+
+        // Acoustic echo filter against companion's last spoken text
+        const lowerHeard = displayText.toLowerCase();
+        const lowerCompanion = lastCompanionSpeechRef.current;
+        if (
+          lowerCompanion &&
+          lowerHeard.length > 6 &&
+          (lowerCompanion.includes(lowerHeard) || lowerHeard.includes(lowerCompanion))
+        ) {
+          addLog('ECHO', `Acoustic filter filtered companion echo: "${displayText}"`, 'warn');
+          return;
+        }
+
+        // Append new final text to the accumulator (don't overwrite)
+        if (newFinalTranscript.trim()) {
+          accumulatedSpeechRef.current = (accumulatedSpeechRef.current + ' ' + newFinalTranscript).trim();
+        }
+
+        // Show interim or accumulated text as live caption
+        const captionText = accumulatedSpeechRef.current || interimTranscript;
+        setCurrentCaption(`Listening: "${captionText.trim()}"`);
+        addLog('STT', `🎙️ Heard (${recognition.lang}): "${displayText}"`, 'info');
+
+        // Debounce: send full accumulated message after 1.8s pause in speech
+        if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
+        speechDebounceTimerRef.current = setTimeout(() => {
+          const textToSend = accumulatedSpeechRef.current.trim();
+          if (
+            textToSend &&
+            textToSend.length > 1 &&
+            !isSpeakingRef.current &&
+            !isProcessingRef.current
+          ) {
+            addLog('STT', `🚀 User speech finalized: "${textToSend}". Dispatching to AI...`, 'success');
+            accumulatedSpeechRef.current = '';
+            sendUserMessageRef.current(textToSend);
+          }
+        }, 1800);
       };
 
       recognition.onerror = (event: any) => {
@@ -1015,19 +1043,35 @@ export function useVirtualCall(persona: VirtualPersona) {
     if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
     if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
 
-    // Log virtual call duration
+    // Log virtual call duration using sendBeacon to survive page navigation
     if (callDuration > 0) {
-      fetch('/api/activity/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category: 'virtual_dating',
-          action: 'virtual_call_end',
-          targetId: persona.id,
-          targetName: persona.name,
-          durationSec: callDuration,
-        }),
-      }).catch(() => {});
+      const logPayload = JSON.stringify({
+        category: 'virtual_dating',
+        action: 'virtual_call_end',
+        targetId: persona.id,
+        targetName: persona.name,
+        durationSec: callDuration,
+      });
+
+      // sendBeacon guarantees delivery even during page unload/navigation
+      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        const blob = new Blob([logPayload], { type: 'application/json' });
+        const sent = navigator.sendBeacon('/api/activity/log', blob);
+        if (!sent) {
+          // Fallback to fetch if sendBeacon fails
+          fetch('/api/activity/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: logPayload,
+          }).catch(() => {});
+        }
+      } else {
+        fetch('/api/activity/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: logPayload,
+        }).catch(() => {});
+      }
     }
 
     isSpeakingRef.current = false;

@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Force dynamic rendering — prevents Next.js from statically prerendering
+// this route at build time (which would freeze analytics data at 0).
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const [
