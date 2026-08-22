@@ -62,6 +62,17 @@ export default function GroupVideoCallPage() {
             avatarColor: colors[idx % colors.length],
           }));
           setParticipants(parts);
+
+          // Signal active call ring to all group members on the platform
+          fetch('/api/calls/ring', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'group',
+              targetId: groupId,
+              groupName: data.group.name,
+            }),
+          }).catch(() => {});
         }
       } catch (_) {}
     }

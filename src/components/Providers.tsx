@@ -14,6 +14,7 @@ import React, {
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { SessionProvider } from "next-auth/react";
+import IncomingCallManager from "./calls/IncomingCallManager";
 
 export default function Providers({
   children,
@@ -56,6 +57,7 @@ export default function Providers({
           hideProgressBar
         />
         {children}
+        <IncomingCallManager />
       </NextUIProvider>
     </SessionProvider>
   );
