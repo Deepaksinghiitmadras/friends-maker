@@ -30,8 +30,9 @@ export default async function TopNavGlass() {
 
   const memberLinks = [
     { href: "/members", label: "Matches" },
-    { href: "/lists", label: "Lists" },
+    { href: "/groups", label: "👥 Groups" },
     { href: "/messages", label: "Messages" },
+    { href: "/lists", label: "Lists" },
     { href: "/virtual", label: "Virtual Dating" },
   ];
 
@@ -43,6 +44,10 @@ export default async function TopNavGlass() {
     {
       href: "/admin/analytics",
       label: "📊 Audience & Users",
+    },
+    {
+      href: "/groups",
+      label: "👥 Groups",
     },
     {
       href: "/admin/moderation",

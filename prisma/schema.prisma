@@ -206,3 +206,49 @@ model RealDatingCall {
   @@index([callerId, receiverId])
 }
 
+// ── REAL DATING: GROUP CHAT & GROUP VIDEO CALL MODELS ──────────────
+
+model ChatGroup {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  image       String?
+  createdById String
+  isPublic    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  members     GroupMember[]
+  messages    GroupMessage[]
+
+  @@index([createdById])
+}
+
+model GroupMember {
+  id        String    @id @default(cuid())
+  groupId   String
+  userId    String
+  userName  String?
+  userImage String?
+  role      String    @default("MEMBER") // ADMIN, MEMBER
+  joinedAt  DateTime  @default(now())
+  group     ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model GroupMessage {
+  id          String    @id @default(cuid())
+  groupId     String
+  senderId    String
+  senderName  String
+  senderImage String?
+  text        String
+  mediaUrl    String?
+  createdAt   DateTime  @default(now())
+  group       ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+

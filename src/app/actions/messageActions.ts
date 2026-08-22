@@ -101,7 +101,7 @@ export async function getMessageThread(recipientId: string) {
     }
 }
 
-export async function getMessagesByContainer(container?: string | null, cursor?: string, limit = 2) {
+export async function getMessagesByContainer(container?: string | null, cursor?: string, limit = 50) {
     try {
         const userId = await getAuthUserId();
 
