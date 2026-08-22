@@ -1,7 +1,7 @@
 "use client";
 
 import { verifyOTPCode } from "@/app/actions/authActions";
-import { Button, Input } from "@nextui-org/react";
+import { Button } from "@nextui-org/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -59,7 +59,9 @@ export default function VerifyOTPForm() {
       const result = await verifyOTPCode(email, code);
       if (result.status === "success") {
         toast.success("Email verified! Redirecting to login...");
-        setTimeout(() => router.push("/login"), 1500);
+        setTimeout(() => {
+          router.push(`/login?email=${encodeURIComponent(email)}`);
+        }, 1200);
       } else {
         toast.error(result.error as string);
         setOtp(["", "", "", "", "", ""]);
@@ -138,7 +140,7 @@ export default function VerifyOTPForm() {
 
           <div className="mt-3 text-center text-sm text-gray-400">
             Already verified?{" "}
-            <Link href="/login" className="text-purple-500 hover:underline font-medium">
+            <Link href={`/login?email=${encodeURIComponent(email)}`} className="text-purple-500 hover:underline font-medium">
               Login here
             </Link>
           </div>

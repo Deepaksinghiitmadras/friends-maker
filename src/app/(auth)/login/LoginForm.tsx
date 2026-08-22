@@ -7,7 +7,7 @@ import {
   CardHeader,
   Input,
 } from "@nextui-org/react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { GiPadlock } from "react-icons/gi";
 import { useForm } from "react-hook-form";
 import {
@@ -20,27 +20,41 @@ import { toast } from "react-toastify";
 import Link from "next/link";
 import SocialLogin from "./SocialLogin";
 import { signIn } from "next-auth/react";
+import { AiOutlineEye, AiOutlineEyeInvisible } from "react-icons/ai";
 
 export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/members";
+  const emailParam = searchParams.get("email") || "";
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { isValid, errors },
   } = useForm<LoginSchema>({
     resolver: zodResolver(loginSchema),
     mode: "all",
+    defaultValues: {
+      email: emailParam,
+      password: "",
+    },
   });
+
+  useEffect(() => {
+    if (emailParam) {
+      setValue("email", emailParam, { shouldValidate: true });
+    }
+  }, [emailParam, setValue]);
 
   const onSubmit = async (data: LoginSchema) => {
     setIsLoading(true);
     try {
       const res = await signIn("credentials", {
-        email: data.email,
+        email: data.email.trim(),
         password: data.password,
         redirect: false,
       });
@@ -77,7 +91,6 @@ export default function LoginForm() {
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="space-y-4">
             <Input
-              defaultValue=""
               label="Email"
               variant="bordered"
               {...register("email")}
@@ -87,10 +100,22 @@ export default function LoginForm() {
               }
             />
             <Input
-              defaultValue=""
               label="Password"
               variant="bordered"
-              type="password"
+              type={showPassword ? "text" : "password"}
+              endContent={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="focus:outline-none text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <AiOutlineEyeInvisible size={20} />
+                  ) : (
+                    <AiOutlineEye size={20} />
+                  )}
+                </button>
+              }
               {...register("password")}
               isInvalid={!!errors.password}
               errorMessage={
@@ -118,4 +143,3 @@ export default function LoginForm() {
     </Card>
   );
 }
-
