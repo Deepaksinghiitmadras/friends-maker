@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Card,
@@ -8,12 +8,8 @@ import {
   Button,
   Chip,
   Input,
-  Table,
-  TableHeader,
-  TableColumn,
-  TableBody,
-  TableRow,
-  TableCell,
+  Tooltip,
+  Spinner,
 } from '@nextui-org/react';
 import {
   FaArrowLeft,
@@ -23,21 +19,28 @@ import {
   FaUserFriends,
   FaClock,
   FaSearch,
-  FaHeart,
-  FaComments,
+  FaShieldAlt,
+  FaTrash,
+  FaBan,
   FaCheckCircle,
-  FaGlobe,
+  FaUserCheck,
+  FaMapMarkerAlt,
 } from 'react-icons/fa';
-import { HiSparkles, HiChartBar } from 'react-icons/hi2';
+import { HiSparkles, HiChartBar, HiUsers } from 'react-icons/hi2';
+import { toast } from 'react-toastify';
 
 export default function AdminAnalyticsPage() {
   const [stats, setStats] = useState<any>(null);
   const [activities, setActivities] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [activitySearch, setActivitySearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [userStatusFilter, setUserStatusFilter] = useState<string>('all');
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/analytics');
@@ -45,17 +48,19 @@ export default function AdminAnalyticsPage() {
       if (data.success) {
         setStats(data.stats);
         setActivities(data.recentActivities || []);
+        setUsers(data.users || []);
       }
     } catch (err) {
       console.error('Failed to load analytics:', err);
+      toast.error('Failed to load audience data');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAnalytics();
-  }, []);
+  }, [fetchAnalytics]);
 
   const formatDuration = (sec?: number) => {
     if (!sec) return '—';
@@ -65,12 +70,74 @@ export default function AdminAnalyticsPage() {
     return `${m}m ${s}s`;
   };
 
+  const handleBlockToggle = async (u: any) => {
+    setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id, isBlocked: !u.isBlocked }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(u.isBlocked ? `User ${u.email} unblocked` : `User ${u.email} blocked`);
+        setUsers((prev) =>
+          prev.map((user) => (user.id === u.id ? { ...user, isBlocked: !user.isBlocked } : user))
+        );
+      } else {
+        toast.error(data.error || 'Failed to update user');
+      }
+    } catch {
+      toast.error('Request failed');
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [u.id]: false }));
+    }
+  };
+
+  const handleDeleteUser = async (u: any) => {
+    if (!confirm(`Permanently delete account for "${u.email}"? All their matches, chats, and data will be removed. This cannot be undone.`)) {
+      return;
+    }
+    setActionLoading((prev) => ({ ...prev, [u.id]: true }));
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: u.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Account for ${u.email} deleted permanently`);
+        setUsers((prev) => prev.filter((user) => user.id !== u.id));
+      } else {
+        toast.error(data.error || 'Failed to delete user');
+      }
+    } catch {
+      toast.error('Request failed');
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [u.id]: false }));
+    }
+  };
+
+  const filteredUsers = users.filter((u) => {
+    const matches =
+      u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.city.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.country.toLowerCase().includes(userSearch.toLowerCase());
+
+    if (userStatusFilter === 'active') return matches && !u.isBlocked && u.emailVerified;
+    if (userStatusFilter === 'blocked') return matches && u.isBlocked;
+    if (userStatusFilter === 'unverified') return matches && !u.emailVerified;
+    return matches;
+  });
+
   const filteredActivities = activities.filter((act) => {
     const matchesSearch =
-      (act.userName && act.userName.toLowerCase().includes(search.toLowerCase())) ||
-      (act.userEmail && act.userEmail.toLowerCase().includes(search.toLowerCase())) ||
-      (act.action && act.action.toLowerCase().includes(search.toLowerCase())) ||
-      (act.targetName && act.targetName.toLowerCase().includes(search.toLowerCase()));
+      (act.userName && act.userName.toLowerCase().includes(activitySearch.toLowerCase())) ||
+      (act.userEmail && act.userEmail.toLowerCase().includes(activitySearch.toLowerCase())) ||
+      (act.action && act.action.toLowerCase().includes(activitySearch.toLowerCase())) ||
+      (act.targetName && act.targetName.toLowerCase().includes(activitySearch.toLowerCase()));
 
     if (categoryFilter === 'virtual') return matchesSearch && act.category === 'virtual_dating';
     if (categoryFilter === 'real') return matchesSearch && act.category === 'real_dating';
@@ -78,7 +145,7 @@ export default function AdminAnalyticsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 space-y-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 space-y-8">
       {/* Top Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div className="flex items-center gap-3">
@@ -91,10 +158,10 @@ export default function AdminAnalyticsPage() {
           <div>
             <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-300 bg-clip-text text-transparent flex items-center gap-2">
               <HiChartBar className="text-pink-400" />
-              <span>User Activity &amp; Calling Analytics</span>
+              <span>Audience Insights &amp; User Management</span>
             </h1>
             <p className="text-xs md:text-sm text-slate-400 mt-0.5">
-              Live metrics across Virtual Companions, Real Dating, and Calling Durations
+              Live audience metrics, calling usage, user control &amp; moderation
             </p>
           </div>
         </div>
@@ -164,6 +231,184 @@ export default function AdminAnalyticsPage() {
         </Card>
       </div>
 
+      {/* ── SECTION: AUDIENCE & USER MANAGEMENT TABLE ─────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <HiUsers className="text-pink-400" />
+              <span>Registered Audience &amp; User Management ({filteredUsers.length})</span>
+            </h2>
+            <p className="text-xs text-slate-400">View usage metrics, call minutes, block or delete accounts</p>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-1.5">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'active', label: '✅ Active' },
+                { id: 'unverified', label: '⚠️ Unverified' },
+                { id: 'blocked', label: '🚫 Blocked' },
+              ].map((btn) => (
+                <button
+                  key={btn.id}
+                  onClick={() => setUserStatusFilter(btn.id)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                    userStatusFilter === btn.id
+                      ? 'bg-pink-600 text-white border-pink-400'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+
+            <Input
+              placeholder="Search user, email, city..."
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              size="sm"
+              variant="bordered"
+              classNames={{
+                input: '!text-white text-xs',
+                inputWrapper: '!bg-slate-900 !border-slate-800 h-8',
+              }}
+            />
+          </div>
+        </div>
+
+        <Card className="bg-slate-900/90 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] font-bold border-b border-slate-800">
+                <tr>
+                  <th className="p-3.5">User</th>
+                  <th className="p-3.5">Role</th>
+                  <th className="p-3.5">Location &amp; Demographics</th>
+                  <th className="p-3.5">Usage &amp; Calls</th>
+                  <th className="p-3.5">Status</th>
+                  <th className="p-3.5 text-right">Moderation Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                      No users found matching your search filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((u) => (
+                    <tr
+                      key={u.id}
+                      className={`hover:bg-slate-800/40 transition-all ${
+                        u.isBlocked ? 'bg-rose-950/20' : ''
+                      }`}
+                    >
+                      <td className="p-3.5 font-bold text-white">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs">
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div>{u.name}</div>
+                            <div className="text-[10px] text-slate-400 font-normal">{u.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <Chip
+                          size="sm"
+                          variant="flat"
+                          color={u.role === 'ADMIN' ? 'secondary' : 'default'}
+                          className="text-[10px] font-bold"
+                        >
+                          {u.role}
+                        </Chip>
+                      </td>
+                      <td className="p-3.5 text-slate-300">
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <FaMapMarkerAlt className="text-pink-400 text-xs" />
+                          <span>{u.city !== '—' ? `${u.city}, ${u.country}` : 'Not specified'}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {u.gender !== '—' ? `${u.gender}${u.age ? `, ${u.age} yrs` : ''}` : ''}
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="font-mono font-bold text-pink-400 text-xs">
+                          {u.totalCallMinutes} mins called
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {u.totalCallCount} call sessions
+                        </div>
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex flex-col gap-1">
+                          {u.isBlocked ? (
+                            <Chip size="sm" color="danger" variant="flat" className="text-[10px] font-bold">
+                              🚫 Blocked
+                            </Chip>
+                          ) : !u.emailVerified ? (
+                            <Chip size="sm" color="warning" variant="flat" className="text-[10px] font-bold">
+                              ⚠️ Unverified
+                            </Chip>
+                          ) : (
+                            <Chip size="sm" color="success" variant="flat" className="text-[10px] font-bold">
+                              ✅ Active
+                            </Chip>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {u.role !== 'ADMIN' ? (
+                            <>
+                              <Tooltip content={u.isBlocked ? 'Unblock user' : 'Block user account'}>
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  color={u.isBlocked ? 'success' : 'warning'}
+                                  isIconOnly
+                                  isLoading={actionLoading[u.id]}
+                                  onClick={() => handleBlockToggle(u)}
+                                  className="h-7 w-7 min-w-7 rounded-lg"
+                                >
+                                  {u.isBlocked ? <FaCheckCircle size={13} /> : <FaBan size={13} />}
+                                </Button>
+                              </Tooltip>
+
+                              <Tooltip content="Permanently delete user account">
+                                <Button
+                                  size="sm"
+                                  variant="flat"
+                                  color="danger"
+                                  isIconOnly
+                                  isLoading={actionLoading[u.id]}
+                                  onClick={() => handleDeleteUser(u)}
+                                  className="h-7 w-7 min-w-7 rounded-lg"
+                                >
+                                  <FaTrash size={13} />
+                                </Button>
+                              </Tooltip>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-purple-300 font-semibold px-2 py-1 bg-purple-950/60 rounded-md border border-purple-800/50">
+                              Admin Protected
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
       {/* Top Personas & Top Users Ranking */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Top Personas by Calling Time */}
@@ -175,7 +420,10 @@ export default function AdminAnalyticsPage() {
           {stats?.topPersonasByMinutes && stats.topPersonasByMinutes.length > 0 ? (
             <div className="space-y-2">
               {stats.topPersonasByMinutes.map((p: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs"
+                >
                   <span className="font-bold text-white flex items-center gap-2">
                     <span className="text-pink-400 font-mono">#{idx + 1}</span> {p.name}
                   </span>
@@ -194,12 +442,15 @@ export default function AdminAnalyticsPage() {
         <Card className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl">
           <h2 className="text-base font-bold text-white mb-3 flex items-center gap-2">
             <FaClock className="text-purple-400" />
-            <span>Most Active Users (By Minutes)</span>
+            <span>Most Active Callers (By Minutes)</span>
           </h2>
           {stats?.topUsersByMinutes && stats.topUsersByMinutes.length > 0 ? (
             <div className="space-y-2">
               {stats.topUsersByMinutes.map((u: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs"
+                >
                   <span className="font-bold text-slate-200 truncate max-w-[200px]">
                     <span className="text-purple-400 font-mono mr-1">#{idx + 1}</span> {u.user}
                   </span>
@@ -246,8 +497,8 @@ export default function AdminAnalyticsPage() {
 
             <Input
               placeholder="Search activity..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={activitySearch}
+              onChange={(e) => setActivitySearch(e.target.value)}
               size="sm"
               variant="bordered"
               classNames={{
@@ -283,7 +534,9 @@ export default function AdminAnalyticsPage() {
                     <tr key={act.id} className="hover:bg-slate-800/40 transition-all">
                       <td className="p-3.5 font-bold text-white">
                         <div>{act.userName || 'Anonymous User'}</div>
-                        {act.userEmail && <div className="text-[10px] text-slate-400 font-normal">{act.userEmail}</div>}
+                        {act.userEmail && (
+                          <div className="text-[10px] text-slate-400 font-normal">{act.userEmail}</div>
+                        )}
                       </td>
                       <td className="p-3.5">
                         <Chip
@@ -295,9 +548,7 @@ export default function AdminAnalyticsPage() {
                           {act.category === 'virtual_dating' ? '🤖 Virtual' : '❤️ Real Dating'}
                         </Chip>
                       </td>
-                      <td className="p-3.5 font-mono text-purple-300 font-bold">
-                        {act.action}
-                      </td>
+                      <td className="p-3.5 font-mono text-purple-300 font-bold">{act.action}</td>
                       <td className="p-3.5 text-slate-300 font-medium">
                         {act.targetName || act.targetId || '—'}
                       </td>

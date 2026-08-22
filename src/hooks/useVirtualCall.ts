@@ -463,6 +463,9 @@ export function useVirtualCall(persona: VirtualPersona) {
 
           const utterance = new SpeechSynthesisUtterance(cleanSpeech);
           currentUtteranceRef.current = utterance;
+          if (typeof window !== 'undefined') {
+            (window as any).__ACTIVE_TTS_UTTERANCE__ = utterance;
+          }
 
           const isMan = persona.gender === 'man';
           const hasHindiText = /[\u0900-\u097F]/.test(cleanSpeech) || /\b(namaste|aap|kaise|kaisi|kaisa|main|meri|mera|mujhe|hum|theek|haan|nahi|kya|accha|achha|bahut|shukriya|pyaar|dil|chai|bolo|batao|karo|sach|arey|ji|yaar)\b/i.test(cleanSpeech);

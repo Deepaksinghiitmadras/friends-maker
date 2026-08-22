@@ -41,8 +41,12 @@ export default async function TopNavGlass() {
       label: "🤖 Companion Studio",
     },
     {
+      href: "/admin/analytics",
+      label: "📊 Audience & Users",
+    },
+    {
       href: "/admin/moderation",
-      label: "Photo Moderation",
+      label: "🖼️ Photo Moderation",
     },
     {
       href: "/virtual",

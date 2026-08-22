@@ -154,8 +154,6 @@ export default function VirtualAvatarCanvas({
             )}
 
             {/* Layer 3: ACTION VIDEO OVERLAY — the critical synced layer */}
-            {/* key={actionVideoSrc} forces React to REMOUNT a new <video> element
-                every time the source changes, ensuring instant fresh playback */}
             {actionVideoSrc && (
               <video
                 key={actionVideoSrc}
@@ -164,11 +162,21 @@ export default function VirtualAvatarCanvas({
                 loop
                 muted
                 playsInline
+                onEnded={(e) => {
+                  e.currentTarget.currentTime = 0;
+                  e.currentTarget.play().catch(() => {});
+                }}
+                onPause={(e) => {
+                  if (isSpeaking) {
+                    e.currentTarget.play().catch(() => {});
+                  }
+                }}
                 onError={(e) => {
                   console.warn(`[AVATAR VIDEO] Failed to load clip "${actionVideoSrc}", falling back to speaking/idle`);
                   const target = e.currentTarget;
                   if (persona.videoClips?.speaking && target.src !== persona.videoClips.speaking) {
                     target.src = persona.videoClips.speaking;
+                    target.play().catch(() => {});
                   }
                 }}
                 className="absolute inset-0 w-full h-full object-cover object-center rounded-2xl opacity-100 z-10"
