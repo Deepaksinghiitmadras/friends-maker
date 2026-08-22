@@ -15,8 +15,15 @@ import FiltersWrapper from "./FiltersWrapper";
 import ModeToggle from "./ModeToggle";
 
 export default async function TopNavGlass() {
-  const session = await auth();
-  const userInfo = session?.user ? await getUserInfoForNav() : null;
+  let session: any = null;
+  let userInfo: any = null;
+
+  try {
+    session = await auth();
+    userInfo = session?.user ? await getUserInfoForNav() : null;
+  } catch (err) {
+    console.warn('[TopNavGlass] Database connection warning:', err);
+  }
 
   const currentUser = session?.user
     ? {

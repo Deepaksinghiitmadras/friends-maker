@@ -40,9 +40,15 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  let session: any = null;
+  try {
+    session = await auth();
+  } catch (err) {
+    console.warn('[RootLayout] Session fetch warning:', err);
+  }
+
   let userId = session?.user?.id || null;
-  let profileComplete = session?.user?.profileComplete as boolean;
+  let profileComplete = (session?.user?.profileComplete as boolean) || false;
 
   // Single-device login enforcement: verify sessionToken matches current DB state
   if (userId && session?.user?.sessionToken) {
