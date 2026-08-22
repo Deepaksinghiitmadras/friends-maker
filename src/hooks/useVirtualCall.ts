@@ -788,8 +788,9 @@ export function useVirtualCall(persona: VirtualPersona) {
         } catch (_) {}
       }
 
+      const isMobileDevice = typeof window !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;
+      recognition.continuous = !isMobileDevice; // iOS/Android STT fails if continuous: true
       recognition.interimResults = true;
       recognition.lang = micLanguageRef.current || (persona.id === 'ananya-sharma' ? 'hi-IN' : 'en-US');
 

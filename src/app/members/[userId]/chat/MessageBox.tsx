@@ -20,16 +20,6 @@ export default function MessageBox({
   const isCurrentUserSender =
     message.senderId === currentUserId;
 
-  const messageEndRef =
-    useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (messageEndRef.current)
-      messageEndRef.current.scrollIntoView({
-        behavior: "smooth",
-      });
-  }, [messageEndRef]);
-
   const renderAvatar = () => (
     <div className="self-end">
       <PresenceAvatar
@@ -101,7 +91,6 @@ export default function MessageBox({
         {renderMessageContent()}
         {isCurrentUserSender && renderAvatar()}
       </div>
-      <div ref={messageEndRef} />
     </div>
   );
 }

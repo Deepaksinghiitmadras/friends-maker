@@ -71,10 +71,12 @@ export default function GroupChatPage() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
   };
 
   const fetchGroup = async () => {
@@ -218,8 +220,9 @@ export default function GroupChatPage() {
 
       {/* ── CHAT MESSAGES CONTAINER ──────────────────────────────────────────── */}
       <Card className="flex-1 rounded-3xl border border-gray-200/80 dark:border-gray-800 shadow-md bg-white/95 dark:bg-gray-900/95 backdrop-blur-md overflow-hidden flex flex-col min-h-0">
-        <CardBody className="flex-1 overflow-y-auto p-4 space-y-3">
-          {loading ? (
+        <CardBody className="flex-1 overflow-hidden p-0 flex flex-col">
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+            {loading ? (
             <div className="text-center py-12 space-y-2">
               <div className="w-8 h-8 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto" />
               <p className="text-xs text-gray-400">Loading conversation...</p>
@@ -268,7 +271,7 @@ export default function GroupChatPage() {
               );
             })
           )}
-          <div ref={messagesEndRef} />
+          </div>
         </CardBody>
 
         {/* ── INPUT BOX (WHATSAPP STYLE) ───────────────────────────────────────── */}

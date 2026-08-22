@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { Button, Card, CardBody, Chip, Tooltip } from '@nextui-org/react';
+import { Button, Chip, Tooltip } from '@nextui-org/react';
 import {
   FaVideo,
   FaVideoSlash,
@@ -30,14 +30,16 @@ export default function RealDatingCallPage() {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const startTimeRef = useRef<number>(Date.now());
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSignalTimeRef = useRef<number>(0);
 
   // 1. Fetch matched member profile
   useEffect(() => {
@@ -56,9 +58,12 @@ export default function RealDatingCallPage() {
     }
   }, [targetUserId]);
 
-  // 2. Initialize Camera & WebRTC stream
+  // 2. Initialize Camera & WebRTC Peer Connection
   useEffect(() => {
-    async function setupLocalMedia() {
+    let active = true;
+    const roomId = [targetUserId, 'real_dating'].sort().join('_');
+
+    async function initWebRTC() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
@@ -68,34 +73,119 @@ export default function RealDatingCallPage() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
-        setCallStatus('connected');
-        startTimeRef.current = Date.now();
 
-        // Log call start
-        fetch('/api/activity/log', {
+        // Trigger phone ring on recipient device
+        fetch('/api/calls/ring', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            category: 'real_dating',
-            action: 'real_call_start',
+            type: 'direct',
             targetId: targetUserId,
-            targetName: matchedMember?.name || 'Matched User',
+            groupName: null,
           }),
         }).catch(() => {});
+
+        // Setup RTCPeerConnection
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ],
+        });
+        pcRef.current = pc;
+
+        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+        pc.ontrack = (event) => {
+          if (remoteVideoRef.current && event.streams[0]) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+            setHasRemoteVideo(true);
+          }
+        };
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            fetch('/api/calls/signal', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                roomId,
+                targetId: targetUserId,
+                signal: { type: 'candidate', candidate: event.candidate },
+              }),
+            }).catch(() => {});
+          }
+        };
+
+        // Create initial SDP offer
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        await fetch('/api/calls/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId,
+            targetId: targetUserId,
+            signal: { type: 'offer', sdp: offer },
+          }),
+        }).catch(() => {});
+
+        setCallStatus('connected');
       } catch (err: any) {
-        console.warn('Camera/Mic permission warning:', err);
+        console.warn('Camera/Mic or WebRTC warning:', err);
         setCallStatus('connected');
       }
     }
 
-    setupLocalMedia();
+    initWebRTC();
+
+    // Signal polling loop
+    const signalInterval = setInterval(async () => {
+      if (!active || !pcRef.current) return;
+      try {
+        const res = await fetch(`/api/calls/signal?roomId=${roomId}&since=${lastSignalTimeRef.current}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.signals)) {
+          for (const item of data.signals) {
+            lastSignalTimeRef.current = Math.max(lastSignalTimeRef.current, item.createdAt);
+            const { signal } = item;
+            if (signal.type === 'offer' && pcRef.current) {
+              await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+              const answer = await pcRef.current.createAnswer();
+              await pcRef.current.setLocalDescription(answer);
+              fetch('/api/calls/signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  roomId,
+                  targetId: targetUserId,
+                  signal: { type: 'answer', sdp: answer },
+                }),
+              }).catch(() => {});
+            } else if (signal.type === 'answer' && pcRef.current) {
+              if (pcRef.current.signalingState === 'have-local-offer') {
+                await pcRef.current.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+              }
+            } else if (signal.type === 'candidate' && pcRef.current) {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+            }
+          }
+        }
+      } catch (_) {}
+    }, 2000);
 
     return () => {
+      active = false;
+      clearInterval(signalInterval);
+      if (pcRef.current) {
+        pcRef.current.close();
+      }
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [targetUserId, matchedMember?.name]);
+  }, [targetUserId]);
 
   // 3. Call Duration Timer
   useEffect(() => {
@@ -133,28 +223,18 @@ export default function RealDatingCallPage() {
 
   // 6. End Call
   const handleEndCall = () => {
-    const totalDurationSec = callDuration;
+    if (pcRef.current) pcRef.current.close();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
     }
     setCallStatus('ended');
 
-    // Log call duration to activity tracker
-    fetch('/api/activity/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        category: 'real_dating',
-        action: 'real_call_end',
-        targetId: targetUserId,
-        targetName: matchedMember?.name || 'Matched User',
-        durationSec: totalDurationSec,
-      }),
-    }).catch(() => {});
+    // Dismiss active ring signal
+    fetch(`/api/calls/ring?targetId=${targetUserId}`, { method: 'DELETE' }).catch(() => {});
 
     setTimeout(() => {
       router.push(`/members/${targetUserId}`);
-    }, 1500);
+    }, 1200);
   };
 
   const formatTime = (seconds: number) => {
@@ -220,46 +300,57 @@ export default function RealDatingCallPage() {
 
       {/* ── MAIN VIDEO AREA ────────────────────────────────────────────────── */}
       <div className="relative flex-1 flex items-center justify-center p-4">
-        {/* Remote / Matched Partner View */}
+        {/* Remote / Matched Partner Live Video View */}
         <div className="relative w-full max-w-4xl aspect-[16/10] md:aspect-video rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl flex items-center justify-center">
-          {matchedMember?.image ? (
-            <div className="relative w-full h-full">
-              <Image
-                src={matchedMember.image}
-                alt={matchedMember.name || 'Match'}
-                fill
-                className="object-cover blur-sm opacity-40 scale-105"
-              />
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 space-y-4">
-                <div className="relative w-28 h-28 md:w-36 md:h-36 rounded-full overflow-hidden border-4 border-rose-500 shadow-2xl shadow-rose-500/40">
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className={`w-full h-full object-cover ${hasRemoteVideo ? 'block' : 'hidden'}`}
+          />
+
+          {!hasRemoteVideo && (
+            <>
+              {matchedMember?.image ? (
+                <div className="relative w-full h-full">
                   <Image
                     src={matchedMember.image}
-                    alt={matchedMember.name}
+                    alt={matchedMember.name || 'Match'}
                     fill
-                    className="object-cover"
+                    className="object-cover blur-sm opacity-40 scale-105"
                   />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 space-y-4">
+                    <div className="relative w-28 h-28 md:w-36 md:h-36 rounded-full overflow-hidden border-4 border-rose-500 shadow-2xl shadow-rose-500/40 animate-pulse">
+                      <Image
+                        src={matchedMember.image}
+                        alt={matchedMember.name}
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <div>
+                      <h2 className="text-xl md:text-2xl font-black text-white">
+                        {matchedMember.name}
+                      </h2>
+                      <p className="text-xs md:text-sm text-rose-200 mt-1 max-w-md">
+                        {matchedMember.city ? `${matchedMember.city}, ${matchedMember.country}` : 'Connecting Video Stream...'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-md animate-pulse">
+                      <HiSparkles className="text-emerald-400" />
+                      <span>Ringing &amp; Connecting Video...</span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl md:text-2xl font-black text-white">
-                    {matchedMember.name}
-                  </h2>
-                  <p className="text-xs md:text-sm text-rose-200 mt-1 max-w-md">
-                    {matchedMember.city ? `${matchedMember.city}, ${matchedMember.country}` : 'Connecting Video Stream...'}
-                  </p>
+              ) : (
+                <div className="text-center space-y-3">
+                  <div className="w-20 h-20 rounded-full bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center text-3xl animate-pulse">
+                    <FaHeart />
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Connecting with Match...</h3>
                 </div>
-                <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-md animate-pulse">
-                  <HiSparkles className="text-emerald-400" />
-                  <span>1-on-1 Real Dating Video Active</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center space-y-3">
-              <div className="w-20 h-20 rounded-full bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center text-3xl animate-pulse">
-                <FaHeart />
-              </div>
-              <h3 className="text-lg font-bold text-white">Connecting with Match...</h3>
-            </div>
+              )}
+            </>
           )}
 
           {/* Local User Self View (Picture-in-Picture) */}
@@ -269,7 +360,7 @@ export default function RealDatingCallPage() {
               autoPlay
               playsInline
               muted
-              className={`w-full h-full object-cover ${isVideoOff ? 'hidden' : ''}`}
+              className={`w-full h-full object-cover -scale-x-100 ${isVideoOff ? 'hidden' : ''}`}
             />
             {isVideoOff && (
               <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs p-2 text-center">

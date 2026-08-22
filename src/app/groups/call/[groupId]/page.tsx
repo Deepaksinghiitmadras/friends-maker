@@ -27,6 +27,7 @@ interface Participant {
   isVideoOff: boolean;
   isSpeaking: boolean;
   avatarColor: string;
+  stream?: MediaStream | null;
 }
 
 export default function GroupVideoCallPage() {
@@ -40,8 +41,11 @@ export default function GroupVideoCallPage() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [remoteStreams, setRemoteStreams] = useState<{ [peerId: string]: MediaStream }>({});
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const peerConnectionsRef = useRef<{ [peerId: string]: RTCPeerConnection }>({});
+  const lastSignalTimeRef = useRef<number>(0);
 
   // 1. Fetch Group details and populate participants
   useEffect(() => {
@@ -51,7 +55,12 @@ export default function GroupVideoCallPage() {
         const data = await res.json();
         if (data.success && data.group) {
           setGroupName(data.group.name);
-          const colors = ['from-pink-500 to-rose-600', 'from-purple-600 to-indigo-600', 'from-blue-500 to-cyan-600', 'from-amber-500 to-orange-600'];
+          const colors = [
+            'from-pink-500 to-rose-600',
+            'from-purple-600 to-indigo-600',
+            'from-blue-500 to-cyan-600',
+            'from-amber-500 to-orange-600',
+          ];
           const parts: Participant[] = (data.group.members || []).slice(0, 5).map((m: any, idx: number) => ({
             id: m.userId,
             name: m.userName || `Member ${idx + 1}`,
@@ -79,9 +88,10 @@ export default function GroupVideoCallPage() {
     loadGroup();
   }, [groupId]);
 
-  // 2. Setup Local Camera & Microphone
+  // 2. Setup Local Camera & Microphone & WebRTC Mesh Signaling
   useEffect(() => {
     let stream: MediaStream | null = null;
+    let active = true;
 
     async function startCamera() {
       try {
@@ -93,6 +103,16 @@ export default function GroupVideoCallPage() {
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
+
+        // Broadcast join signal
+        fetch('/api/calls/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: groupId,
+            signal: { type: 'join' },
+          }),
+        }).catch(() => {});
       } catch (err) {
         console.warn('Could not access camera/mic for group call:', err);
       }
@@ -100,12 +120,125 @@ export default function GroupVideoCallPage() {
 
     startCamera();
 
+    // Signal polling loop for group peers
+    const signalInterval = setInterval(async () => {
+      if (!active) return;
+      try {
+        const res = await fetch(`/api/calls/signal?roomId=${groupId}&since=${lastSignalTimeRef.current}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.signals)) {
+          for (const item of data.signals) {
+            lastSignalTimeRef.current = Math.max(lastSignalTimeRef.current, item.createdAt);
+            const peerId = item.senderId;
+            const { signal } = item;
+
+            if (signal.type === 'join' && stream) {
+              // Create PC for new joiner
+              const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+              });
+              peerConnectionsRef.current[peerId] = pc;
+
+              stream.getTracks().forEach((track) => pc.addTrack(track, stream!));
+
+              pc.ontrack = (event) => {
+                if (event.streams[0]) {
+                  setRemoteStreams((prev) => ({ ...prev, [peerId]: event.streams[0] }));
+                }
+              };
+
+              pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                  fetch('/api/calls/signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      roomId: groupId,
+                      targetId: peerId,
+                      signal: { type: 'candidate', candidate: e.candidate },
+                    }),
+                  }).catch(() => {});
+                }
+              };
+
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+
+              fetch('/api/calls/signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  roomId: groupId,
+                  targetId: peerId,
+                  signal: { type: 'offer', sdp: offer },
+                }),
+              }).catch(() => {});
+            } else if (signal.type === 'offer' && stream) {
+              const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+              });
+              peerConnectionsRef.current[peerId] = pc;
+
+              stream.getTracks().forEach((track) => pc.addTrack(track, stream!));
+
+              pc.ontrack = (event) => {
+                if (event.streams[0]) {
+                  setRemoteStreams((prev) => ({ ...prev, [peerId]: event.streams[0] }));
+                }
+              };
+
+              pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                  fetch('/api/calls/signal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      roomId: groupId,
+                      targetId: peerId,
+                      signal: { type: 'candidate', candidate: e.candidate },
+                    }),
+                  }).catch(() => {});
+                }
+              };
+
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+
+              fetch('/api/calls/signal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  roomId: groupId,
+                  targetId: peerId,
+                  signal: { type: 'answer', sdp: answer },
+                }),
+              }).catch(() => {});
+            } else if (signal.type === 'answer') {
+              const pc = peerConnectionsRef.current[peerId];
+              if (pc && pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+              }
+            } else if (signal.type === 'candidate') {
+              const pc = peerConnectionsRef.current[peerId];
+              if (pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }, 2000);
+
     return () => {
+      active = false;
+      clearInterval(signalInterval);
+      Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [groupId]);
 
   // 3. Call Duration Timer
   useEffect(() => {
@@ -135,9 +268,11 @@ export default function GroupVideoCallPage() {
 
   // 6. Leave Call
   const handleLeaveCall = () => {
+    Object.values(peerConnectionsRef.current).forEach((pc) => pc.close());
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop());
     }
+    fetch(`/api/calls/ring?targetId=${groupId}`, { method: 'DELETE' }).catch(() => {});
     router.push(`/groups/${groupId}`);
   };
 
@@ -171,7 +306,7 @@ export default function GroupVideoCallPage() {
         </div>
       </div>
 
-      {/* ── RESPONSIVE VIDEO GRID (WHATSAPP/GOOGLE MEET STYLE) ───────────────── */}
+      {/* ── RESPONSIVE VIDEO GRID ───────────────────────────────────────────── */}
       <div className="flex-1 my-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 items-center justify-center">
         {/* Local User Tile */}
         <Card className="h-60 sm:h-72 w-full rounded-3xl overflow-hidden relative bg-slate-900 border border-purple-500/40 shadow-xl">
@@ -197,37 +332,54 @@ export default function GroupVideoCallPage() {
         </Card>
 
         {/* Remote Group Participants Tiles */}
-        {participants.map((p, idx) => (
-          <Card
-            key={p.id || idx}
-            className={`h-60 sm:h-72 w-full rounded-3xl overflow-hidden relative bg-slate-900 border transition-all ${
-              p.isSpeaking ? 'border-emerald-500 shadow-emerald-500/20 shadow-xl ring-2 ring-emerald-500/40' : 'border-slate-800'
-            }`}
-          >
-            <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 p-6 space-y-3`}>
-              <Avatar
-                src={p.image || undefined}
-                name={p.name}
-                className={`w-20 h-20 text-xl font-bold bg-gradient-to-tr ${p.avatarColor} text-white shadow-lg ${
-                  p.isSpeaking ? 'scale-105 ring-4 ring-emerald-400 animate-pulse' : ''
-                }`}
-              />
-              <div className="text-center">
-                <div className="font-bold text-sm text-white">{p.name}</div>
-                {p.isSpeaking && (
-                  <div className="text-[10px] text-emerald-400 font-semibold flex items-center justify-center gap-1 mt-0.5">
-                    <FaVolumeUp className="animate-bounce" /> Speaking...
-                  </div>
-                )}
-              </div>
-            </div>
+        {participants.map((p, idx) => {
+          const remoteStream = remoteStreams[p.id];
 
-            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 border border-white/10">
-              <span>{p.name}</span>
-              {p.isMuted && <FaMicrophoneSlash className="text-red-400 text-xs" />}
-            </div>
-          </Card>
-        ))}
+          return (
+            <Card
+              key={p.id || idx}
+              className={`h-60 sm:h-72 w-full rounded-3xl overflow-hidden relative bg-slate-900 border transition-all ${
+                p.isSpeaking ? 'border-emerald-500 shadow-emerald-500/20 shadow-xl ring-2 ring-emerald-500/40' : 'border-slate-800'
+              }`}
+            >
+              {remoteStream ? (
+                <video
+                  autoPlay
+                  playsInline
+                  ref={(el) => {
+                    if (el && el.srcObject !== remoteStream) {
+                      el.srcObject = remoteStream;
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className={`w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 to-slate-950 p-6 space-y-3`}>
+                  <Avatar
+                    src={p.image || undefined}
+                    name={p.name}
+                    className={`w-20 h-20 text-xl font-bold bg-gradient-to-tr ${p.avatarColor} text-white shadow-lg ${
+                      p.isSpeaking ? 'scale-105 ring-4 ring-emerald-400 animate-pulse' : ''
+                    }`}
+                  />
+                  <div className="text-center">
+                    <div className="font-bold text-sm text-white">{p.name}</div>
+                    {p.isSpeaking && (
+                      <div className="text-[10px] text-emerald-400 font-semibold flex items-center justify-center gap-1 mt-0.5">
+                        <FaVolumeUp className="animate-bounce" /> Speaking...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 border border-white/10">
+                <span>{p.name}</span>
+                {p.isMuted && <FaMicrophoneSlash className="text-red-400 text-xs" />}
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
       {/* ── FLOATING CALL CONTROLS BAR ───────────────────────────────────────── */}

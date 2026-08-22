@@ -122,9 +122,18 @@ export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const callId = searchParams.get('callId');
+    const targetId = searchParams.get('targetId');
 
     if (callId && activeCalls.has(callId)) {
       activeCalls.delete(callId);
+    }
+
+    if (targetId) {
+      Array.from(activeCalls.entries()).forEach(([key, call]) => {
+        if (call.targetId === targetId) {
+          activeCalls.delete(key);
+        }
+      });
     }
 
     return NextResponse.json({ success: true });
