@@ -356,6 +356,31 @@ export default function AdminVirtualCompanionsPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <Button
             size="sm"
+            className="bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold text-xs shadow-md shadow-pink-600/30"
+            startContent={<HiSparkles className="text-xs animate-spin" style={{ animationDuration: '4s' }} />}
+            onClick={async () => {
+              if (!confirm('Send today\'s automated daily selfie email to all verified registered users?')) return;
+              try {
+                const res = await fetch('/api/admin/daily-selfies', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ noteType: 'morning' }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                  alert(`🎉 Dispatched daily selfies to ${data.dispatchedCount} verified users!`);
+                } else {
+                  alert(data.error || 'Failed to broadcast');
+                }
+              } catch (e: any) {
+                alert(e?.message || 'Broadcast failed');
+              }
+            }}
+          >
+            📸 Broadcast Daily Selfies
+          </Button>
+          <Button
+            size="sm"
             as={Link}
             href="/admin/analytics"
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/30"

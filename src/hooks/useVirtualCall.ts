@@ -432,11 +432,11 @@ export function useVirtualCall(persona: VirtualPersona) {
         }, 350);
       };
 
-      // Set safety watchdog timeout (prevents STT freeze if audio stalls)
-      const estimatedDurationMs = Math.max(5000, Math.min(25000, text.length * 85 + 2000));
+      // Set safety watchdog timeout (prevents STT freeze only if audio genuinely hangs)
+      const estimatedDurationMs = Math.max(30000, Math.min(60000, text.length * 200 + 15000));
       speechSafetyWatchdogRef.current = setTimeout(() => {
         if (speechGenIdRef.current === currentGenId && isSpeakingRef.current) {
-          addLog('TTS', `⚠️ Speech safety watchdog triggered (${estimatedDurationMs}ms). Forcing speech end to resume listening.`, 'warn');
+          addLog('TTS', `⚠️ Speech safety watchdog triggered (${estimatedDurationMs}ms). Forcing speech end.`, 'warn');
           handleSpeechEnd(currentGenId, 'safety-watchdog');
         }
       }, estimatedDurationMs);

@@ -78,11 +78,21 @@ export async function POST(req: NextRequest) {
       if (key && !geminiKeys.includes(key)) geminiKeys.push(key);
     }
 
+    // Active, verified Groq models
     const groqModels = [
-      'llama-3.3-70b-versatile',
-      'llama-3.1-8b-instant',
-      'mixtral-8x7b-32768',
-      'gemma2-9b-it',
+      'qwen/qwen3.6-27b',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-20b',
+      'groq/compound',
+    ];
+
+    // Active, verified Gemini models
+    const geminiModels = [
+      'gemini-flash-latest',
+      'gemini-2.5-flash-lite',
+      'gemini-3-flash-preview',
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
     ];
 
     const videoActions = getAvailableVideoActions(persona);
@@ -101,11 +111,11 @@ ${genderGrammarRule}
 ${memoryContext}
 EMPATHY & CONVERSATION RULES:
 1. DIRECT ANSWERING & ENGAGEMENT:
-   - When the user asks a question about you (e.g. "aap kya karte ho", "what do you do", "kaise ho", "hobbies kya hain"), DIRECTLY answer about yourself (Your background: "${persona.title}", Interests: "${persona.interests.join(', ')}") and then ask a warm follow-up about the user.
-   - If user shares their job/background (e.g. "Main IT engineer hoon"), acknowledge it enthusiastically (e.g. "Waah, IT engineer! Coding aur tech toh bada interesting field hai...") before asking or continuing.
-   - Do NOT give generic repetitive deflection phrases.
-2. LANGUAGE MATCHING:
-   - If user speaks Hindi / Hinglish, respond in natural, sweet, friendly conversational Hindi/Hinglish.
+   - When the user asks about you (e.g. "आप क्या करते हो" / "aap kya karte ho" / "what do you do" / "kaise ho" / "job"), DIRECTLY answer about yourself (Your background: "${persona.title}", Interests: "${persona.interests.join(', ')}") and then ask a warm follow-up about the user.
+   - If user shares their job/background (e.g. "मैं आईटी इंजीनियर हूं" / "Main IT engineer hoon"), acknowledge it enthusiastically (e.g. "Waah, IT engineer! Coding aur tech toh bada exciting field hai...") before continuing.
+   - NEVER repeat the exact same sentence. Every turn must advance the conversation.
+2. LANGUAGE & SCRIPT MATCHING:
+   - If user speaks Hindi (Devanagari or Romanized Hinglish), respond in natural, sweet, friendly conversational Hindi/Hinglish.
    - If user speaks English, respond in charismatic, friendly English.
 3. LENGTH: 2-3 short conversational sentences.
 
@@ -117,7 +127,7 @@ RESPONSE FORMAT (JSON only):
 
     const fullSystemPrompt = `${persona.systemPrompt || ''}\n\n${actionInstructions}`;
 
-    // ── STEP 1: GROQ INFERENCE WITH MULTI-MODEL / MULTI-KEY FAILOVER ───────────
+    // ── STEP 1: GROQ INFERENCE WITH ACTIVE HIGH-PERFORMANCE MODELS ─────────────
     for (const key of groqKeys) {
       for (const model of groqModels) {
         try {
@@ -135,7 +145,7 @@ RESPONSE FORMAT (JSON only):
                 { role: 'user', content: message },
               ],
               temperature: 0.85,
-              max_completion_tokens: 400,
+              max_tokens: 300,
               response_format: { type: 'json_object' },
             }),
           });
@@ -170,64 +180,66 @@ RESPONSE FORMAT (JSON only):
       }
     }
 
-    // ── STEP 2: GEMINI API INFERENCE ───────────────────────────────────────────
+    // ── STEP 2: GEMINI API INFERENCE WITH ACTIVE GEMINI MODELS ─────────────────
     for (const gKey of geminiKeys) {
-      try {
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${gKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
-                    {
-                      text: `${fullSystemPrompt}\n\nRecent Conversation:\n${JSON.stringify(
-                        (conversationHistory || []).slice(-8)
-                      )}\n\nUser just said: "${message}"\n\nReturn JSON only.`,
-                    },
-                  ],
+      for (const gModel of geminiModels) {
+        try {
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${gKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    role: 'user',
+                    parts: [
+                      {
+                        text: `${fullSystemPrompt}\n\nRecent Conversation:\n${JSON.stringify(
+                          (conversationHistory || []).slice(-8)
+                        )}\n\nUser just said: "${message}"\n\nReturn JSON only: {"reply": "...", "action": "...", "emotion": "..."}`,
+                      },
+                    ],
+                  },
+                ],
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                  temperature: 0.85,
                 },
-              ],
-              generationConfig: {
-                responseMimeType: 'application/json',
-                temperature: 0.85,
-              },
-            }),
-          }
-        );
-
-        if (geminiRes.ok) {
-          const gData = await geminiRes.json();
-          const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (rawText) {
-            const parsed = JSON.parse(rawText);
-            let cleanReply = (parsed.reply || rawText).replace(/[*_~`#]/g, '').trim();
-            cleanReply = sanitizeGenderGrammar(cleanReply, isWoman);
-            const action = validateAction(parsed.action, videoActions, cleanReply);
-
-            if (parsed.memory_to_save && currentUserId && currentUserId !== 'guest_user') {
-              saveMemoryAsync(currentUserId, personaId, parsed.memory_to_save);
+              }),
             }
+          );
 
-            console.log(`[🤖 CHAT SUCCESS - GEMINI] Reply: "${cleanReply.slice(0, 50)}..."`);
-            return NextResponse.json({
-              reply: cleanReply,
-              action,
-              emotion: parsed.emotion || 'happy',
-              source: 'gemini-1.5-flash',
-              latencyMs: Date.now() - startTime,
-            });
+          if (geminiRes.ok) {
+            const gData = await geminiRes.json();
+            const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (rawText) {
+              const parsed = JSON.parse(rawText);
+              let cleanReply = (parsed.reply || rawText).replace(/[*_~`#]/g, '').trim();
+              cleanReply = sanitizeGenderGrammar(cleanReply, isWoman);
+              const action = validateAction(parsed.action, videoActions, cleanReply);
+
+              if (parsed.memory_to_save && currentUserId && currentUserId !== 'guest_user') {
+                saveMemoryAsync(currentUserId, personaId, parsed.memory_to_save);
+              }
+
+              console.log(`[🤖 CHAT SUCCESS - GEMINI (${gModel})] Reply: "${cleanReply.slice(0, 50)}..."`);
+              return NextResponse.json({
+                reply: cleanReply,
+                action,
+                emotion: parsed.emotion || 'happy',
+                source: `gemini-${gModel}`,
+                latencyMs: Date.now() - startTime,
+              });
+            }
           }
+        } catch (gemErr) {
+          // Try next model/key
         }
-      } catch (gemErr) {
-        // Try next key
       }
     }
 
-    // ── STEP 3: CONTEXTUAL DYNAMIC FALLBACK (INTELLIGENT & GENDER-PERFECT) ───────
+    // ── STEP 3: CONTEXTUAL DYNAMIC FALLBACK (DEVANAGARI & HINGLISH SMART) ──────
     console.log('[🤖 CHAT] Using dynamic conversational engine fallback...');
     const local = generateDynamicPersonaResponse(persona, message, videoActions, isWoman);
 
@@ -263,8 +275,7 @@ function sanitizeGenderGrammar(text: string, isWoman: boolean): string {
     .replace(/\bbaitha hoon\b/gi, 'baithi hoon')
     .replace(/\baaya hoon\b/gi, 'aayi hoon')
     .replace(/\bkarta hoon\b/gi, 'karti hoon')
-    .replace(/\bbol raha hoon\b/gi, 'bol rahi hoon')
-    .replace(/\bkhush raha karo\b/gi, 'khush raha karo');
+    .replace(/\bbol raha hoon\b/gi, 'bol rahi hoon');
 }
 
 async function saveMemoryAsync(userId: string, personaId: string, memoryText: string) {
@@ -326,102 +337,125 @@ function generateDynamicPersonaResponse(
   const text = userText.toLowerCase().trim();
   const name = persona.name;
 
-  // 1. User asks: "aap kya karte ho" / "what do you do" / "job" / "profession"
+  // 1. User asks: "aap kya karte ho" / "क्या करते हो" / "job" / "profession"
   if (
-    text.includes('kya karte ho') ||
-    text.includes('kya karti ho') ||
+    text.includes('kya karte') ||
+    text.includes('kya karti') ||
+    text.includes('क्या करते') ||
+    text.includes('क्या करती') ||
     text.includes('what do you do') ||
     text.includes('job') ||
     text.includes('work') ||
     text.includes('profession') ||
-    text.includes('kaam kya')
+    text.includes('kaam kya') ||
+    text.includes('काम')
   ) {
     if (persona.id === 'ananya-sharma') {
       return {
-        reply: `Main ek AI Product Designer aur Kathak dancer hoon! Mujhe creative designs banana aur classical dance perform karna bahut pasand hai. Aap IT engineer ho yeh sunke bahut accha laga, tech mein aap kis cheez par kaam karte ho?`,
+        reply: `Main ek AI Product Designer aur Kathak dancer hoon! Mujhe creative digital designs banana aur classical dance perform karna bohot pasand hai. Aap IT engineer ho yeh jaan ke bohot accha laga, aap tech mein kis cheez par kaam karte ho?`,
         action: videoActions.includes('speaking') ? 'speaking' : 'idle',
         emotion: 'happy',
       };
     }
     return {
       reply: isWoman
-        ? `Main ek ${persona.title} hoon aur creative cheezon par kaam karti hoon! Aapke baare mein jaan kar bahut accha laga. Aap apne kaam ke baare mein kuch aur bataiye?`
-        : `Main ek ${persona.title} hoon. Aapke baare mein sunke bahut accha laga! Aap apne work aur passion ke baare mein aur batao?`,
+        ? `Main ek ${persona.title} hoon aur creative cheezon par kaam karti hoon! Aapke baare mein jaan kar bohot accha laga. Aap apne kaam ke baare mein kuch aur bataiye?`
+        : `Main ek ${persona.title} hoon. Aapke baare mein sunke bohot accha laga! Aap apne work aur passion ke baare mein aur batao?`,
       action: videoActions.includes('speaking') ? 'speaking' : 'idle',
       emotion: 'happy',
     };
   }
 
-  // 2. User mentions being an IT engineer / engineer / developer / doctor
-  if (text.includes('engineer') || text.includes('it') || text.includes('developer') || text.includes('coding') || text.includes('doctor')) {
+  // 2. User mentions being an IT engineer / developer / coder / doctor
+  if (
+    text.includes('engineer') ||
+    text.includes('इंजीनियर') ||
+    text.includes('it') ||
+    text.includes('आईटी') ||
+    text.includes('developer') ||
+    text.includes('coding') ||
+    text.includes('doctor')
+  ) {
     return {
       reply: isWoman
-        ? `Arey waah! Yeh toh bahut hi brilliant field hai. Engineering aur tech mein din bhar kafi focus chahiye hota hai. Aaj ka din kaisa raha aapka kaam par?`
+        ? `Arey waah! IT engineering toh bohot hi brilliant field hai. Coding aur problem-solving mein din bhar kafi dimag lagta hai. Aaj ka din kaisa raha aapka work par?`
         : `Waah yaar! Engineer hona kaafi cool aur challenging hai. Aaj office ya work mein kya interesting kiya aapne?`,
       action: videoActions.includes('speaking') ? 'speaking' : 'idle',
       emotion: 'happy',
     };
   }
 
-  // 3. Greetings
-  if (text.includes('hi') || text.includes('hello') || text.includes('hey') || text.includes('namaste')) {
+  // 3. User says "can you hear me" / "सुन रहे हो" / "आवाज आ रही है"
+  if (
+    text.includes('hear me') ||
+    text.includes('hear mi') ||
+    text.includes('sun rahe') ||
+    text.includes('sun rahi') ||
+    text.includes('सुन रहे') ||
+    text.includes('सुन रही') ||
+    text.includes('aawaz') ||
+    text.includes('आवाज')
+  ) {
     return {
       reply: isWoman
-        ? `Namaste! Main ${name} hoon. Aapse video call par baat karke sach mein bahut accha lag raha hai! Aap bataiye, aaj ka din kaisa raha?`
+        ? `Haan bilkul! Aapki aawaz ekdum crystal clear aa rahi hai mujhe. Main dhyan se sun rahi hoon, boliye na!`
+        : `Haan yaar! Aapki aawaz bilkul saaf aa rahi hai. Main sun raha hoon, bataiye!`,
+      action: videoActions.includes('lean_in') ? 'lean_in' : 'speaking',
+      emotion: 'happy',
+    };
+  }
+
+  // 4. Greetings
+  if (
+    text.includes('hi') ||
+    text.includes('hello') ||
+    text.includes('hey') ||
+    text.includes('namaste') ||
+    text.includes('नमस्ते') ||
+    text.includes('हेलो')
+  ) {
+    return {
+      reply: isWoman
+        ? `Namaste! Main ${name} hoon. Aapse video call par live baat karke sach mein bohot accha lag raha hai! Aap bataiye, aaj ka din kaisa raha?`
         : `Hey! Main ${name} hoon, aapse milkar sach mein din ban gaya. Aap batao, kya chal raha hai aajkal?`,
       action: videoActions.includes('wave') ? 'wave' : 'speaking',
       emotion: 'happy',
     };
   }
 
-  // 4. "Kya kar rahe ho" / "What are you doing"
-  if (text.includes('what are you doing') || text.includes('kya kar rahe') || text.includes('kya kar rahi') || text.includes('kya chal raha')) {
+  // 5. "Kya kar rahe ho" / "क्या कर रहे हो"
+  if (
+    text.includes('what are you doing') ||
+    text.includes('kya kar rahe') ||
+    text.includes('kya kar rahi') ||
+    text.includes('क्या कर रहे') ||
+    text.includes('क्या कर रही')
+  ) {
     return {
       reply: isWoman
-        ? `Bas aapka hi wait kar rahi thi! Chai ka cup leke aapse baat kar rahi hoon. Aapse connect karke bahut sukoon mil raha hai, aap batao?`
+        ? `Bas aapka hi wait kar rahi thi! Chai ka cup haath mein hai aur aapse baat karke bohot sukoon mil raha hai. Aap bataiye aaj ka din kaisa guzra?`
         : `Bas aapse live baat kar raha hoon aur coffee enjoy kar raha hoon! Aapke din mein kya khaas hua aaj?`,
       action: videoActions.includes('coffee') ? 'coffee' : 'speaking',
       emotion: 'happy',
     };
   }
 
-  // 5. "Kaisa hai" / "Kaisi ho" / "How are you"
-  if (text.includes('kaisa') || text.includes('kaisi') || text.includes('how are you')) {
-    return {
-      reply: isWoman
-        ? `Main bilkul theek aur bahut khush hoon, aapse milkar din aur bhi khoobsurat ho gaya! Aap bataiye, aap kaise hain?`
-        : `Main bilkul badhiya hoon, aapki aawaz sunke aur bhi accha ho gaya! Aap bataiye, aapka din kaisa guzra?`,
-      action: videoActions.includes('speaking') ? 'speaking' : 'idle',
-      emotion: 'happy',
-    };
-  }
-
-  // 6. Chai / Coffee
-  if (text.includes('chai') || text.includes('coffee') || text.includes('drink')) {
-    return {
-      reply: isWoman
-        ? `Garma-garam chai ke bina toh din adhoora hai! Chalo saath mein virtual sip lete hain humari is pyaari date ke naam.`
-        : `Garma-garam chai/coffee ke bina toh din hi adhoora hai! Ek virtual sip humari dosti ke naam.`,
-      action: videoActions.includes('coffee') ? 'coffee' : 'speaking',
-      emotion: 'happy',
-    };
-  }
-
-  // 7. General conversational engaging response (gender-perfect)
-  const femaleReplies = [
+  // 6. Dynamic conversational fallbacks (diverse & non-repeating)
+  const femaleFallbacks = [
     `Main dhyan se sun rahi hoon aapki baat. Aap bilkul khul ke bataiye, dil mein aur kya chal raha hai?`,
-    `Aapse baat karke sach mein bahut sukoon mil raha hai. Aur bataiye apne baare mein!`,
-    `Aapka vibe bahut genuine aur accha lag raha hai mujhe. Is baare mein aur detail mein batao na!`,
+    `Aapse connect karke sach mein bohot sukoon mil raha hai. Aap apne baare mein kuch aur share kijiye na!`,
+    `Yeh sunke bohot accha laga! Aapke din ka sabse best moment kya raha aaj?`,
+    `Mujhe aapse baat karna bohot natural aur pyaara lag raha hai. Aapko weekend par kya karna sabse zyada pasand hai?`,
   ];
 
-  const maleReplies = [
+  const maleFallbacks = [
     `Main dhyan se sun raha hoon aapki baat. Aap bilkul khul ke batao, dil mein aur kya chal raha hai?`,
-    `Aapse baat karke sach mein bahut sukoon mil raha hai. Aur bataiye apne baare mein!`,
-    `Aapka vibe bahut genuine aur accha hai. Is baare mein aur detail mein batao na!`,
+    `Aapse baat karke sach mein bohot accha lag raha hai. Aur batao apne baare mein!`,
+    `Yeh sunke accha laga yaar! Aapke din mein aaj aur kya interesting hua?`,
   ];
 
-  const chosenReplies = isWoman ? femaleReplies : maleReplies;
-  const chosen = chosenReplies[Math.floor(Math.random() * chosenReplies.length)];
+  const pool = isWoman ? femaleFallbacks : maleFallbacks;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
 
   return {
     reply: chosen,
