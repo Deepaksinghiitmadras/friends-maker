@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Button, Chip, Tooltip } from '@nextui-org/react';
 import {
   FaVideo,
@@ -17,6 +18,8 @@ import {
   FaLock,
   FaHeart,
   FaComments,
+  FaPhoneAlt,
+  FaVolumeUp,
 } from 'react-icons/fa';
 import { HiSparkles } from 'react-icons/hi2';
 
@@ -24,12 +27,15 @@ export default function RealDatingCallPage() {
   const params = useParams();
   const router = useRouter();
   const targetUserId = params.userId as string;
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
 
   const [matchedMember, setMatchedMember] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isAudioOnly, setIsAudioOnly] = useState(false);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -60,17 +66,21 @@ export default function RealDatingCallPage() {
 
   // 2. Initialize Camera & WebRTC Peer Connection
   useEffect(() => {
+    if (!targetUserId) return;
     let active = true;
-    const roomId = [targetUserId, 'real_dating'].sort().join('_');
+
+    // Symmetric room ID ensuring both caller & receiver connect to the identical room
+    const myId = currentUserId || 'caller';
+    const roomId = [myId, targetUserId].sort().join('_dating_');
 
     async function initWebRTC() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+          video: isAudioOnly ? false : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
           audio: true,
         });
         localStreamRef.current = stream;
-        if (localVideoRef.current) {
+        if (localVideoRef.current && !isAudioOnly) {
           localVideoRef.current.srcObject = stream;
         }
 
@@ -185,7 +195,7 @@ export default function RealDatingCallPage() {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [targetUserId]);
+  }, [targetUserId, currentUserId, isAudioOnly]);
 
   // 3. Call Duration Timer
   useEffect(() => {
@@ -221,7 +231,12 @@ export default function RealDatingCallPage() {
     }
   };
 
-  // 6. End Call
+  // 6. Toggle Audio-Only Voice Call Mode
+  const toggleAudioMode = () => {
+    setIsAudioOnly(!isAudioOnly);
+  };
+
+  // 7. End Call
   const handleEndCall = () => {
     if (pcRef.current) pcRef.current.close();
     if (localStreamRef.current) {
@@ -267,10 +282,10 @@ export default function RealDatingCallPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base md:text-lg font-bold text-white">
-                {matchedMember?.name || 'Live 1-on-1 Video Call'}
+                {matchedMember?.name || 'Live Dating Call'}
               </h1>
               <Chip size="sm" color="danger" variant="dot" className="border-none text-[10px] font-bold text-rose-300">
-                LIVE
+                {isAudioOnly ? 'VOICE CALL' : 'LIVE VIDEO'}
               </Chip>
             </div>
             <p className="text-xs text-rose-300 flex items-center gap-1.5">
@@ -298,18 +313,18 @@ export default function RealDatingCallPage() {
         </div>
       </div>
 
-      {/* ── MAIN VIDEO AREA ────────────────────────────────────────────────── */}
+      {/* ── MAIN VIDEO / AUDIO AREA ────────────────────────────────────────── */}
       <div className="relative flex-1 flex items-center justify-center p-4">
-        {/* Remote / Matched Partner Live Video View */}
+        {/* Remote / Matched Partner View */}
         <div className="relative w-full max-w-4xl aspect-[16/10] md:aspect-video rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl flex items-center justify-center">
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className={`w-full h-full object-cover ${hasRemoteVideo ? 'block' : 'hidden'}`}
+            className={`w-full h-full object-cover ${hasRemoteVideo && !isAudioOnly ? 'block' : 'hidden'}`}
           />
 
-          {!hasRemoteVideo && (
+          {(!hasRemoteVideo || isAudioOnly) && (
             <>
               {matchedMember?.image ? (
                 <div className="relative w-full h-full">
@@ -333,12 +348,12 @@ export default function RealDatingCallPage() {
                         {matchedMember.name}
                       </h2>
                       <p className="text-xs md:text-sm text-rose-200 mt-1 max-w-md">
-                        {matchedMember.city ? `${matchedMember.city}, ${matchedMember.country}` : 'Connecting Video Stream...'}
+                        {matchedMember.city ? `${matchedMember.city}, ${matchedMember.country}` : 'Connecting Voice & Video Stream...'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-md animate-pulse">
                       <HiSparkles className="text-emerald-400" />
-                      <span>Ringing &amp; Connecting Video...</span>
+                      <span>{hasRemoteVideo ? 'Voice & Audio Connected' : 'Ringing & Connecting Call...'}</span>
                     </div>
                   </div>
                 </div>
@@ -354,29 +369,31 @@ export default function RealDatingCallPage() {
           )}
 
           {/* Local User Self View (Picture-in-Picture) */}
-          <div className="absolute bottom-4 right-4 w-28 md:w-44 aspect-video rounded-2xl overflow-hidden bg-black/90 border-2 border-white/20 shadow-2xl z-10">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-cover -scale-x-100 ${isVideoOff ? 'hidden' : ''}`}
-            />
-            {isVideoOff && (
-              <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs p-2 text-center">
-                <FaVideoSlash className="text-lg mb-1 text-slate-500" />
-                <span>Camera Off</span>
+          {!isAudioOnly && (
+            <div className="absolute bottom-4 right-4 w-28 md:w-44 aspect-video rounded-2xl overflow-hidden bg-black/90 border-2 border-white/20 shadow-2xl z-10">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover -scale-x-100 ${isVideoOff ? 'hidden' : ''}`}
+              />
+              {isVideoOff && (
+                <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs p-2 text-center">
+                  <FaVideoSlash className="text-lg mb-1 text-slate-500" />
+                  <span>Camera Off</span>
+                </div>
+              )}
+              <div className="absolute bottom-1 left-2 text-[9px] font-bold text-white/80 bg-black/60 px-1.5 py-0.5 rounded">
+                You {isMicMuted && '🔇'}
               </div>
-            )}
-            <div className="absolute bottom-1 left-2 text-[9px] font-bold text-white/80 bg-black/60 px-1.5 py-0.5 rounded">
-              You {isMicMuted && '🔇'}
             </div>
-          </div>
+          )}
         </div>
       </div>
 
       {/* ── BOTTOM CALL CONTROLS ─────────────────────────────────────────── */}
-      <div className="relative z-20 p-6 flex items-center justify-center gap-4 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+      <div className="relative z-20 p-6 flex items-center justify-center gap-4 bg-gradient-to-t from-black/90 via-black/60 to-transparent flex-wrap">
         <Tooltip content={isMicMuted ? 'Unmute Mic' : 'Mute Mic'}>
           <Button
             size="lg"
@@ -414,6 +431,22 @@ export default function RealDatingCallPage() {
             onClick={toggleVideo}
           >
             {isVideoOff ? <FaVideoSlash className="text-lg" /> : <FaVideo className="text-lg" />}
+          </Button>
+        </Tooltip>
+
+        {/* Audio-Only Voice Call Mode Toggle */}
+        <Tooltip content={isAudioOnly ? 'Switch to Video Call' : 'Switch to Voice-Only Call'}>
+          <Button
+            size="lg"
+            isIconOnly
+            className={`rounded-full shadow-lg ${
+              isAudioOnly
+                ? 'bg-emerald-600 text-white shadow-emerald-600/40'
+                : 'bg-white/10 hover:bg-white/20 text-white backdrop-blur-md'
+            }`}
+            onClick={toggleAudioMode}
+          >
+            <FaPhoneAlt className="text-lg" />
           </Button>
         </Tooltip>
 

@@ -327,6 +327,17 @@ function ActiveCallSession({ persona }: { persona: VirtualPersona }) {
             <span className="text-gray-400">Ready</span>
           )}
         </div>
+
+        {/* Floating Tap to Speak Button for Mobile / Tablet (Samsung / Android / iOS) */}
+        <div className="absolute bottom-24 sm:bottom-28 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center">
+          <button
+            onClick={() => forceRestartMic()}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-bold text-xs shadow-xl shadow-emerald-500/30 border border-emerald-400/40 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+          >
+            <FaMicrophone className="text-sm animate-pulse" />
+            <span>{isListening ? '🎙️ Mic Active (Tap if paused)' : '🎙️ Tap to Speak (बोलने के लिए टैप करें)'}</span>
+          </button>
+        </div>
       </div>
 
       {/* ── BOTTOM CALL CONTROL BAR ────────────────────────────────────────── */}
