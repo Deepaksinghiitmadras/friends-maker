@@ -58,6 +58,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                             },
                         });
                         console.log('[AUTHORIZE] Admin login success, id:', adminUser.id);
+                        // Log admin login activity
+                        void logLoginActivity(adminUser.id, adminUser.email, adminUser.name);
                         return adminUser;
                     } else if (normalizedEmail === envAdminEmail) {
                         console.log('[AUTHORIZE] Admin email matched but ADMIN_PASSWORD not set or wrong password — falling through to DB check');
@@ -85,6 +87,16 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                         return null;
                     }
 
+                    // ── SECURITY: Block login if email not verified ──────────────────
+                    // Without this check, users can bypass email verification by logging in
+                    // directly. The /complete-profile page would then let them set
+                    // profileComplete=true without ever verifying their email.
+                    console.log('[AUTHORIZE] Email verified:', !!user.emailVerified);
+                    if (!user.emailVerified) {
+                        console.log('[AUTHORIZE] FAIL — email not verified for:', normalizedEmail);
+                        return null;
+                    }
+
                     const passwordMatch = await compare(password, user.passwordHash);
                     console.log('[AUTHORIZE] Password match:', passwordMatch);
                     if (!passwordMatch) {
@@ -93,6 +105,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                     }
 
                     console.log('[AUTHORIZE] SUCCESS for:', normalizedEmail, 'role:', user.role);
+
+                    // Log successful login to UserActivity for admin analytics
+                    void logLoginActivity(user.id, user.email, user.name);
+
                     return user;
 
                 } catch (error: any) {
@@ -103,3 +119,22 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         })
     ]
 })
+
+/** Fire-and-forget: log a login event to UserActivity for admin analytics.
+ *  Wrapped in try/catch so a logging failure never blocks authentication. */
+async function logLoginActivity(userId: string, userEmail: string | null, userName: string | null) {
+    try {
+        await prisma.userActivity.create({
+            data: {
+                userId,
+                userEmail,
+                userName: userName || 'Unknown',
+                category: 'auth',
+                action: 'login',
+                details: { source: 'credentials' },
+            }
+        });
+    } catch (err: any) {
+        console.warn('[AUTHORIZE] Activity log failed (non-blocking):', err?.message);
+    }
+}

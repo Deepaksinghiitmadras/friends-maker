@@ -17,6 +17,7 @@ import { completeSocialLoginProfile } from "@/app/actions/authActions";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
+import { useEffect } from "react";
 
 export default function CompleteProfileForm() {
   const router = useRouter();
@@ -27,28 +28,37 @@ export default function CompleteProfileForm() {
 
   const {
     handleSubmit,
-    formState: { errors, isSubmitting, isValid },
+    trigger,
+    formState: { errors, isSubmitting },
   } = methods;
 
-  const onSubmit = async (
-    data: ProfileSchema
-  ) => {
-    const result =
-      await completeSocialLoginProfile(data);
+  // Trigger validation on mount so react-hook-form knows which fields are empty.
+  // Without this, isValid stays false even after all fields are filled.
+  useEffect(() => {
+    trigger();
+  }, [trigger]);
 
-    if (result.status === "success") {
-      // For social logins (google/github) re-signin refreshes the session token
-      // For credentials users, just navigate to members
-      if (result.data === "credentials") {
-        router.push("/members");
-        router.refresh();
+  const onSubmit = async (data: ProfileSchema) => {
+    try {
+      const result = await completeSocialLoginProfile(data);
+
+      if (result.status === "success") {
+        // For social logins (google/github) re-signin refreshes the session token
+        // For credentials users, just navigate to members
+        if (result.data === "credentials") {
+          router.push("/members");
+          router.refresh();
+        } else {
+          signIn(result.data, {
+            callbackUrl: "/members",
+          });
+        }
       } else {
-        signIn(result.data, {
-          callbackUrl: "/members",
-        });
+        toast.error(result.error as string);
       }
-    } else {
-      toast.error(result.error as string);
+    } catch (error: any) {
+      console.error("[CompleteProfile] onSubmit error:", error);
+      toast.error(error?.message || "Failed to save profile. Please try again.");
     }
   };
 
@@ -73,7 +83,7 @@ export default function CompleteProfileForm() {
               <div className="flex flex-row items-center gap-6">
                 <Button
                   isLoading={isSubmitting}
-                  isDisabled={!isValid}
+                  isDisabled={isSubmitting}
                   fullWidth
                   color="default"
                   type="submit"

@@ -35,7 +35,7 @@ export default function ProfileDetailsForm() {
           errors.gender?.message as string
         }
         onChange={(e) =>
-          setValue("gender", e.target.value)
+          setValue("gender", e.target.value, { shouldValidate: true })
         }
       >
         {genderList.map((item) => (

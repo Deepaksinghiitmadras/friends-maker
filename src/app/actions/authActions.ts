@@ -95,6 +95,18 @@ export async function registerUser(data: RegisterSchema): Promise<ActionResult<U
 
         await sendVerificationEmail(verificationToken.email, verificationToken.token)
 
+        // Log registration to UserActivity for admin analytics (fire-and-forget)
+        void prisma.userActivity.create({
+            data: {
+                userId: user.id,
+                userEmail: user.email,
+                userName: user.name || 'Unknown',
+                category: 'auth',
+                action: 'register',
+                details: { source: 'credentials' },
+            }
+        }).catch((e: any) => console.warn('[REGISTER] Activity log failed:', e?.message));
+
         return { status: 'success', data: user }
     } catch (error: any) {
         console.log('Registration error:', error);
