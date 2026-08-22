@@ -133,22 +133,22 @@ export default function VirtualCompanionsPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-900 via-indigo-900 to-pink-900 text-white p-8 md:p-12 shadow-2xl mb-12 border border-purple-500/20"
+        className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-purple-900 via-indigo-900 to-pink-900 text-white p-5 sm:p-8 md:p-12 shadow-2xl mb-8 md:mb-12 border border-purple-500/20"
       >
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-96 h-96 rounded-full bg-pink-500/20 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-96 h-96 rounded-full bg-purple-500/20 blur-3xl pointer-events-none" />
 
         <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-pink-300 text-xs font-semibold uppercase tracking-wider mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-pink-300 text-xs font-semibold uppercase tracking-wider mb-3">
             <HiSparkles className="text-amber-300 animate-spin" style={{ animationDuration: '3s' }} />
             Next-Gen Interactive AI Video Dating
           </div>
 
-          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-4 leading-tight">
+          <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-white mb-3 leading-tight">
             Meet &amp; Talk with <span className="bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-300 bg-clip-text text-transparent">AI Virtual Companions</span>
           </h1>
 
-          <p className="text-base sm:text-lg text-purple-100/90 mb-8 leading-relaxed">
+          <p className="text-xs sm:text-base md:text-lg text-purple-100/90 mb-6 leading-relaxed">
             Experience ultra-realistic 1-on-1 live video calls with intelligent virtual men and women. 
             Speak with your microphone, see responsive lip-synced video avatars, and explore deep emotional connection without judgment.
           </p>

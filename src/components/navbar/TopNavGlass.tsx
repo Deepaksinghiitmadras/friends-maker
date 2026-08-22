@@ -69,40 +69,43 @@ export default async function TopNavGlass() {
     <>
       <Navbar
         maxWidth="full"
-        className="bg-white/70 backdrop-blur-xl border-b border-gray-200/60 shadow-sm relative before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/80 before:to-gray-50/30"
+        className="bg-white/70 backdrop-blur-xl border-b border-gray-200/60 shadow-sm relative before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/80 before:to-gray-50/30 overflow-x-auto"
         classNames={{
           item: [
-            "text-lg",
+            "text-xs",
+            "sm:text-sm",
+            "md:text-base",
             "text-slate-800",
-            "font-medium",
-            "tracking-wide",
+            "font-semibold",
+            "tracking-normal",
             "transition-all",
             "duration-200",
             "hover:text-slate-900",
             "hover:bg-black/5",
-            "hover:backdrop-blur-sm",
             "rounded-lg",
-            "px-3",
+            "px-2",
+            "sm:px-3",
             "py-1",
+            "whitespace-nowrap",
             "data-[active=true]:text-pink-600",
-            "data-[active=true]:font-semibold",
+            "data-[active=true]:font-bold",
             "data-[active=true]:bg-pink-50/60",
           ],
-          wrapper: "px-6 relative z-10",
+          wrapper: "px-2 sm:px-4 md:px-6 relative z-10 gap-2 sm:gap-4 overflow-x-auto flex-nowrap",
         }}
       >
-        <NavbarBrand as={Link} href="/" className="gap-3">
+        <NavbarBrand as={Link} href="/" className="gap-1.5 sm:gap-3 shrink-0">
           <GiSelfLove
-            size={36}
+            size={28}
             className="text-pink-500 drop-shadow-sm"
           />
-          <div className="font-bold text-2xl flex items-center">
+          <div className="font-bold text-base sm:text-2xl flex items-center">
             <span className="bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
               TrueFriends
             </span>
           </div>
         </NavbarBrand>
-        <NavbarContent justify="center" className="gap-6">
+        <NavbarContent justify="center" className="gap-1 sm:gap-2 md:gap-4 overflow-x-auto flex-nowrap max-w-full">
           <ModeToggle />
           {session &&
             links.map((item) => (

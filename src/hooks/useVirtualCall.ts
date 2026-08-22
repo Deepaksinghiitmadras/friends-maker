@@ -819,22 +819,22 @@ export function useVirtualCall(persona: VirtualPersona) {
 
         let interimTranscript = '';
         let newFinalTranscript = '';
+        let fullHeard = '';
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            // Only process final results we haven't seen yet
-            if (i >= lastProcessedResultIndexRef.current) {
-              newFinalTranscript += transcript + ' ';
-              lastProcessedResultIndexRef.current = i + 1;
+        for (let i = 0; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res && res[0]) {
+            const piece = res[0].transcript;
+            fullHeard += piece + ' ';
+            if (res.isFinal) {
+              newFinalTranscript += piece + ' ';
+            } else {
+              interimTranscript += piece + ' ';
             }
-          } else {
-            interimTranscript += transcript;
           }
         }
 
-        // Use new finals if available, otherwise use interim for live caption
-        const displayText = (newFinalTranscript || interimTranscript).trim();
+        const displayText = (fullHeard || newFinalTranscript || interimTranscript).trim();
         if (!displayText) return;
 
         // Acoustic echo filter against companion's last spoken text
@@ -849,14 +849,8 @@ export function useVirtualCall(persona: VirtualPersona) {
           return;
         }
 
-        // Append new final text to the accumulator (don't overwrite)
-        if (newFinalTranscript.trim()) {
-          accumulatedSpeechRef.current = (accumulatedSpeechRef.current + ' ' + newFinalTranscript).trim();
-        }
-
-        // Show interim or accumulated text as live caption
-        const captionText = accumulatedSpeechRef.current || interimTranscript;
-        setCurrentCaption(`Listening: "${captionText.trim()}"`);
+        accumulatedSpeechRef.current = displayText;
+        setCurrentCaption(`Listening: "${displayText}"`);
         addLog('STT', `🎙️ Heard (${recognition.lang}): "${displayText}"`, 'info');
 
         // Debounce: send full accumulated message after 1.8s pause in speech
