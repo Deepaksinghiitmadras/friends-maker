@@ -6,7 +6,7 @@ import { sendPasswordResetEmail, sendVerificationEmail } from '@/lib/mail';
 import { prisma } from '@/lib/prisma';
 import { LoginSchema } from '@/lib/schemas/LoginSchema';
 import { combinedRegisterSchema, ProfileSchema, registerSchema, RegisterSchema } from '@/lib/schemas/RegisterSchema';
-import { generateToken, getTokenByToken } from '@/lib/tokens';
+import { generateToken, generateOTP, getTokenByToken } from '@/lib/tokens';
 import { ActionResult } from '@/types';
 import { TokenType, User } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -91,11 +91,10 @@ export async function registerUser(data: RegisterSchema): Promise<ActionResult<U
             }
         })
 
-        const verificationToken = await generateToken(email, TokenType.VERIFICATION);
+        const otp = await generateOTP(email);
+        await sendVerificationEmail(email, otp);
 
-        await sendVerificationEmail(verificationToken.email, verificationToken.token)
-
-        // Log registration to UserActivity for admin analytics (fire-and-forget)
+        // Log registration activity (fire-and-forget)
         void prisma.userActivity.create({
             data: {
                 userId: user.id,
@@ -120,13 +119,13 @@ export async function verifyEmail(token: string): Promise<ActionResult<string>> 
         const existingToken = await getTokenByToken(token);
 
         if (!existingToken) {
-            return { status: 'error', error: 'Invalid token' }
+            return { status: 'error', error: 'Invalid or expired verification code' }
         }
 
         const hasExpired = new Date() > existingToken.expires;
 
         if (hasExpired) {
-            return { status: 'error', error: 'Token has expired' }
+            return { status: 'error', error: 'Verification code has expired. Please request a new one.' }
         }
 
         const existingUser = await getUserByEmail(existingToken.email);
@@ -150,6 +149,46 @@ export async function verifyEmail(token: string): Promise<ActionResult<string>> 
     } catch (error) {
         console.log(error);
         throw error;
+    }
+}
+
+/** Verify a 6-digit OTP sent to the user's email during registration. */
+export async function verifyOTPCode(email: string, otp: string): Promise<ActionResult<string>> {
+    try {
+        if (!email || !otp || otp.length !== 6) {
+            return { status: 'error', error: 'Please enter the 6-digit code from your email' };
+        }
+
+        const record = await getTokenByToken(otp.trim());
+
+        if (!record || record.email.toLowerCase() !== email.toLowerCase()) {
+            return { status: 'error', error: 'Invalid verification code' };
+        }
+
+        if (new Date() > record.expires) {
+            return { status: 'error', error: 'Code has expired. Please register again to get a new code.' };
+        }
+
+        const user = await getUserByEmail(email);
+
+        if (!user) {
+            return { status: 'error', error: 'Account not found for this email' };
+        }
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                emailVerified: new Date(),
+                profileComplete: true,
+            }
+        });
+
+        await prisma.token.delete({ where: { id: record.id } });
+
+        return { status: 'success', data: 'Email verified! You can now log in.' };
+    } catch (error: any) {
+        console.error('[verifyOTPCode]', error);
+        return { status: 'error', error: 'Something went wrong. Please try again.' };
     }
 }
 

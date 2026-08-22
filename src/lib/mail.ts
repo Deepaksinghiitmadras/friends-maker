@@ -8,20 +8,28 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+// AUTH_URL is already set to https://truefriend.vercel.app on Vercel.
+// NEXT_PUBLIC_BASE_URL is an optional override for custom domains.
+// Fallback to localhost for local dev only.
+const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.AUTH_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.NODEMAILER_EMAIL || 'deepak.909sgh@gmail.com';
 
-export async function sendVerificationEmail(email: string, token: string) {
-  const link = `${baseUrl}/verify-email?token=${token}`;
-
+export async function sendVerificationEmail(email: string, otp: string) {
   return transporter.sendMail({
     from: `"TrueFriends" <${process.env.NODEMAILER_EMAIL}>`,
     to: email,
-    subject: 'Verify your email address',
+    subject: 'Your TrueFriends verification code',
     html: `
-      <h1>Verify your email address</h1>
-      <p>Click the link below to verify your email address</p>
-      <a href="${link}">Verify email</a>
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eaeaea; border-radius: 12px;">
+        <h2 style="color: #ec4899; margin-top: 0;">Verify your email address</h2>
+        <p style="color: #374151; font-size: 15px;">Enter the code below on the TrueFriends registration page to verify your email address.</p>
+        <div style="background: linear-gradient(135deg, #fdf2f8, #f5f3ff); border: 2px solid #f9a8d4; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+          <p style="margin: 0 0 8px 0; font-size: 13px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px;">Your verification code</p>
+          <p style="margin: 0; font-size: 42px; font-weight: bold; letter-spacing: 10px; color: #be185d; font-family: monospace;">${otp}</p>
+          <p style="margin: 8px 0 0 0; font-size: 12px; color: #9ca3af;">Expires in 10 minutes</p>
+        </div>
+        <p style="font-size: 13px; color: #6b7280;">If you did not create an account on TrueFriends, you can safely ignore this email.</p>
+      </div>
     `,
   });
 }

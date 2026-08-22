@@ -88,12 +88,16 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                     }
 
                     // ── SECURITY: Block login if email not verified ──────────────────
-                    // Without this check, users can bypass email verification by logging in
-                    // directly. The /complete-profile page would then let them set
-                    // profileComplete=true without ever verifying their email.
                     console.log('[AUTHORIZE] Email verified:', !!user.emailVerified);
                     if (!user.emailVerified) {
                         console.log('[AUTHORIZE] FAIL — email not verified for:', normalizedEmail);
+                        return null;
+                    }
+
+                    // ── SECURITY: Block login if admin has blocked this account ──────
+                    console.log('[AUTHORIZE] isBlocked:', user.isBlocked);
+                    if (user.isBlocked) {
+                        console.log('[AUTHORIZE] FAIL — account is blocked:', normalizedEmail);
                         return null;
                     }
 

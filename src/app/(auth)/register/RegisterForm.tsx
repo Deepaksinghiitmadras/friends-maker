@@ -56,7 +56,9 @@ export default function RegisterForm() {
       getValues()
     );
     if (result.status === "success") {
-      router.push("/register/success");
+      // Redirect to OTP verification page so user can enter the 6-digit code
+      const email = encodeURIComponent(getValues("email") || "");
+      router.push(`/verify-otp?email=${email}`);
     } else {
       handleFormServerErrors(result, setError);
     }
