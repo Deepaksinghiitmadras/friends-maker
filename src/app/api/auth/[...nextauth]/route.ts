@@ -3,33 +3,43 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const GET = handlers.GET;
 
-// @auth/core returns a Response with a ReadableStream body. In Vercel serverless,
-// piping this stream through Next.js causes FUNCTION_INVOCATION_FAILED even when
-// the function itself succeeds (status 200). Fix: materialize the body to a concrete
-// string, then return a fresh NextResponse so Next.js has no streaming to manage.
+// @auth/core returns a Response with a ReadableStream body — piping it through
+// Next.js serverless on Vercel causes FUNCTION_INVOCATION_FAILED even when the
+// handler itself succeeds. Fix: materialize the body to a string first, then
+// rebuild a concrete NextResponse.
+//
+// CRITICAL: `set-cookie` is a multi-value header. Using headers.set() for it
+// overwrites every cookie with the last one — dropping the session token.
+// Must use headers.append() for `set-cookie` so all cookies are forwarded.
 export async function POST(req: NextRequest) {
   try {
     console.log('[AUTH] POST /api/auth/callback/credentials called');
 
     const authResponse = await handlers.POST(req);
 
-    // Materialize body — avoids streaming failures on Vercel serverless
+    // Materialize the body to avoid Vercel serverless streaming failures
     const body = await authResponse.text();
     const status = authResponse.status;
 
-    // Log details so we can see what NextAuth is actually returning
     console.log('[AUTH] status:', status);
     console.log('[AUTH] content-type:', authResponse.headers.get('content-type'));
-    console.log('[AUTH] body-preview:', body.slice(0, 200));
+    console.log('[AUTH] body-preview:', body.slice(0, 300));
 
-    // Rebuild headers, forwarding set-cookie and other important headers
+    // Rebuild response headers.
+    // IMPORTANT: set-cookie must be appended (not set) to preserve ALL cookies.
+    // Using headers.set() for set-cookie causes subsequent cookies to overwrite
+    // the session token, leaving the client without a valid auth cookie.
     const headers = new Headers();
     authResponse.headers.forEach((value, key) => {
-      // skip transfer-encoding — Next.js manages this itself
-      if (key.toLowerCase() !== 'transfer-encoding') {
+      if (key.toLowerCase() === 'transfer-encoding') return; // Next.js manages this
+      if (key.toLowerCase() === 'set-cookie') {
+        headers.append(key, value); // append so multiple cookies are all forwarded
+      } else {
         headers.set(key, value);
       }
     });
+
+    console.log('[AUTH] set-cookie headers forwarded:', headers.getSetCookie?.()?.length ?? 'N/A');
 
     return new NextResponse(body, { status, headers });
   } catch (error: any) {
