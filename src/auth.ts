@@ -30,6 +30,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
                     console.log('[AUTHORIZE] Login attempt for:', normalizedEmail);
 
+                    // Generate a new unique sessionToken for single-device enforcement
+                    const currentSessionToken = crypto.randomUUID();
+
                     // --- Admin fast path ---
                     const envAdminEmail = (process.env.ADMIN_EMAIL || process.env.NODEMAILER_EMAIL || 'admin@test.com').toLowerCase().trim();
                     const envAdminPassword = process.env.ADMIN_PASSWORD || '';
@@ -47,6 +50,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                                 passwordHash,
                                 profileComplete: true,
                                 emailVerified: new Date(),
+                                sessionToken: currentSessionToken,
                             },
                             create: {
                                 email: envAdminEmail,
@@ -55,10 +59,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                                 passwordHash,
                                 profileComplete: true,
                                 emailVerified: new Date(),
+                                sessionToken: currentSessionToken,
                             },
                         });
                         console.log('[AUTHORIZE] Admin login success, id:', adminUser.id);
-                        // Log admin login activity
                         void logLoginActivity(adminUser.id, adminUser.email, adminUser.name);
                         return adminUser;
                     } else if (normalizedEmail === envAdminEmail) {
@@ -107,6 +111,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
                         console.log('[AUTHORIZE] FAIL — password mismatch');
                         return null;
                     }
+
+                    // ── SINGLE DEVICE ENFORCEMENT: Update sessionToken in DB ─────────
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: { sessionToken: currentSessionToken }
+                    });
+                    user.sessionToken = currentSessionToken;
 
                     console.log('[AUTHORIZE] SUCCESS for:', normalizedEmail, 'role:', user.role);
 

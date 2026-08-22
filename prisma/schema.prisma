@@ -35,6 +35,7 @@ model User {
   image           String?
   profileComplete Boolean   @default(false)
   isBlocked       Boolean   @default(false)
+  sessionToken    String?
   accounts        Account[]
   member          Member?
   role            Role      @default(MEMBER)

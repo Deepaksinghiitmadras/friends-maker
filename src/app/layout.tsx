@@ -5,6 +5,7 @@ import TopNav from "@/components/navbar/TopNavGlass";
 import Footer from "@/components/footer/Footer";
 import PWARegister from "@/components/pwa/PWARegister";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import NextTopLoader from "nextjs-toploader";
 
 // Root layout reads auth session — must be dynamic on every request
@@ -40,8 +41,26 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
-  const userId = session?.user?.id || null;
-  const profileComplete = session?.user?.profileComplete as boolean;
+  let userId = session?.user?.id || null;
+  let profileComplete = session?.user?.profileComplete as boolean;
+
+  // Single-device login enforcement: verify sessionToken matches current DB state
+  if (userId && session?.user?.sessionToken) {
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { sessionToken: true, isBlocked: true },
+      });
+
+      if (dbUser?.isBlocked || (dbUser?.sessionToken && dbUser.sessionToken !== session.user.sessionToken)) {
+        // Session superseded by another device login or user blocked
+        userId = null;
+        profileComplete = false;
+      }
+    } catch {
+      // Non-blocking fallback
+    }
+  }
 
   return (
     <html lang="en">

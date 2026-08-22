@@ -6,7 +6,7 @@ import { sendPasswordResetEmail, sendVerificationEmail } from '@/lib/mail';
 import { prisma } from '@/lib/prisma';
 import { LoginSchema } from '@/lib/schemas/LoginSchema';
 import { combinedRegisterSchema, ProfileSchema, registerSchema, RegisterSchema } from '@/lib/schemas/RegisterSchema';
-import { generateToken, generateOTP, getTokenByToken } from '@/lib/tokens';
+import { generateToken, generateOTP, generateResetPasswordOTP, getTokenByToken } from '@/lib/tokens';
 import { ActionResult } from '@/types';
 import { TokenType, User } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -194,54 +194,51 @@ export async function verifyOTPCode(email: string, otp: string): Promise<ActionR
 
 export async function generateResetPasswordEmail(email: string): Promise<ActionResult<string>> {
     try {
-        const existingUser = await getUserByEmail(email);
+        const normalizedEmail = email.toLowerCase().trim();
+        const existingUser = await getUserByEmail(normalizedEmail);
 
         if (!existingUser) {
-            return { status: 'error', error: 'Email not found' }
+            return { status: 'error', error: 'Email not found' };
         }
 
-        const token = await generateToken(email, TokenType.PASSWORD_RESET);
+        const otp = await generateResetPasswordOTP(normalizedEmail);
 
-        await sendPasswordResetEmail(token.email, token.token);
+        await sendPasswordResetEmail(normalizedEmail, otp);
 
-        return { status: 'success', data: 'Password reset email has been sent.  Please check your emails' }
+        return { status: 'success', data: 'Password reset code has been sent to your email.' };
     } catch (error) {
         console.log(error);
-        return { status: 'error', error: 'Something went wrong' }
+        return { status: 'error', error: 'Something went wrong sending reset code' };
     }
 }
 
-
-
-export async function getAuthUserId() {
-    const session = await auth();
-    const userId = session?.user?.id;
-
-    if (!userId) throw new Error('Unauthorized');
-
-    return userId;
-}
-
-export async function resetPassword(password: string, token: string | null): Promise<ActionResult<string>> {
+export async function resetPasswordWithOTP(data: {
+    email: string;
+    otp: string;
+    password: string;
+}): Promise<ActionResult<string>> {
     try {
-        if (!token) return { status: 'error', error: 'Missing token' };
+        const { email, otp, password } = data;
+        const normalizedEmail = email.toLowerCase().trim();
 
-        const existingToken = await getTokenByToken(token);
-
-        if (!existingToken) {
-            return { status: 'error', error: 'Invalid token' }
+        if (!normalizedEmail || !otp || otp.trim().length !== 6 || !password) {
+            return { status: 'error', error: 'Please provide email, 6-digit code, and new password' };
         }
 
-        const hasExpired = new Date() > existingToken.expires;
+        const record = await getTokenByToken(otp.trim());
 
-        if (hasExpired) {
-            return { status: 'error', error: 'Token has expired' }
+        if (!record || record.type !== TokenType.PASSWORD_RESET || record.email.toLowerCase() !== normalizedEmail) {
+            return { status: 'error', error: 'Invalid or incorrect reset code' };
         }
 
-        const existingUser = await getUserByEmail(existingToken.email);
+        if (new Date() > record.expires) {
+            return { status: 'error', error: 'Reset code has expired. Please request a new one.' };
+        }
+
+        const existingUser = await getUserByEmail(normalizedEmail);
 
         if (!existingUser) {
-            return { status: 'error', error: 'User not found' }
+            return { status: 'error', error: 'User not found' };
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -252,13 +249,13 @@ export async function resetPassword(password: string, token: string | null): Pro
         });
 
         await prisma.token.delete({
-            where: { id: existingToken.id }
+            where: { id: record.id }
         });
 
-        return { status: 'success', data: 'Password updated successfully.  Please try logging in' }
+        return { status: 'success', data: 'Password updated successfully! Please log in.' };
     } catch (error) {
         console.log(error);
-        return { status: 'error', error: 'Something went wrong' }
+        return { status: 'error', error: 'Something went wrong resetting password' };
     }
 }
 
@@ -312,6 +309,26 @@ export async function completeSocialLoginProfile(data: ProfileSchema):
         console.log(error);
         return { status: 'error', error: 'Something went wrong completing your profile' }
     }
+}
+
+export async function getAuthUserId() {
+    const session = await auth();
+    const userId = session?.user?.id;
+    const sessionToken = session?.user?.sessionToken;
+
+    if (!userId) throw new Error('Unauthorized');
+
+    if (sessionToken) {
+        const dbUser = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { sessionToken: true, isBlocked: true }
+        });
+        if (dbUser?.isBlocked || (dbUser?.sessionToken && dbUser.sessionToken !== sessionToken)) {
+            throw new Error('Logged in from another device. Please log in again.');
+        }
+    }
+
+    return userId;
 }
 
 export async function getUserRole() {

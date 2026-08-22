@@ -14,6 +14,7 @@ export default {
             if (user) {
                 token.profileComplete = (user as any).profileComplete;
                 token.role = (user as any).role;
+                token.sessionToken = (user as any).sessionToken;
             }
             return token;
         },
@@ -22,6 +23,7 @@ export default {
                 session.user.id = token.sub;
                 session.user.profileComplete = token.profileComplete as boolean;
                 session.user.role = token.role as any;
+                session.user.sessionToken = (token.sessionToken as string) || null;
             }
             return session;
         }

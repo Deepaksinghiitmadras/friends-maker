@@ -34,17 +34,22 @@ export async function sendVerificationEmail(email: string, otp: string) {
   });
 }
 
-export async function sendPasswordResetEmail(email: string, token: string) {
-  const link = `${baseUrl}/reset-password?token=${token}`;
-
+export async function sendPasswordResetEmail(email: string, otp: string) {
   return transporter.sendMail({
     from: `"TrueFriends" <${process.env.NODEMAILER_EMAIL}>`,
     to: email,
-    subject: 'Reset your password',
+    subject: 'Your TrueFriends password reset code',
     html: `
-      <h1>You have requested to reset your password</h1>
-      <p>Click the link below to reset password</p>
-      <a href="${link}">Reset password</a>
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #eaeaea; border-radius: 12px;">
+        <h2 style="color: #ec4899; margin-top: 0;">Reset your password</h2>
+        <p style="color: #374151; font-size: 15px;">Enter the 6-digit code below to reset your TrueFriends account password.</p>
+        <div style="background: linear-gradient(135deg, #fdf2f8, #f5f3ff); border: 2px solid #f9a8d4; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+          <p style="margin: 0 0 8px 0; font-size: 13px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px;">Your password reset code</p>
+          <p style="margin: 0; font-size: 42px; font-weight: bold; letter-spacing: 10px; color: #be185d; font-family: monospace;">${otp}</p>
+          <p style="margin: 8px 0 0 0; font-size: 12px; color: #9ca3af;">Expires in 10 minutes</p>
+        </div>
+        <p style="font-size: 13px; color: #6b7280;">If you did not request a password reset, you can safely ignore this email.</p>
+      </div>
     `,
   });
 }
