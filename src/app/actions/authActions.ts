@@ -33,8 +33,11 @@ export async function signInUser(data: LoginSchema): Promise<ActionResult<string
         });
 
         return { status: 'success', data: 'Logged in' }
-    } catch (error) {
-        console.log(error);
+    } catch (error: any) {
+        console.log('[SIGN IN ERROR]', error);
+        if (error?.message?.includes('exceeded the data transfer quota')) {
+            return { status: 'error', error: 'Database quota exceeded. Please reset quota in your Neon console.' };
+        }
         if (error instanceof AuthError) {
             switch (error.type) {
                 case 'CredentialsSignin':
@@ -43,9 +46,6 @@ export async function signInUser(data: LoginSchema): Promise<ActionResult<string
                     return { status: 'error', error: 'Something went wrong' }
             }
         } else {
-            // Re-throw non-AuthError errors (e.g. NEXT_REDIRECT from successful signIn).
-            // In NextAuth v5 beta, signIn() throws a redirect error on success even with
-            // redirect:false in server actions. Catching it causes a 500 crash.
             throw error;
         }
     }
@@ -206,8 +206,11 @@ export async function generateResetPasswordEmail(email: string): Promise<ActionR
         await sendPasswordResetEmail(normalizedEmail, otp);
 
         return { status: 'success', data: 'Password reset code has been sent to your email.' };
-    } catch (error) {
-        console.log(error);
+    } catch (error: any) {
+        console.log('[RESET PASSWORD EMAIL ERROR]', error);
+        if (error?.message?.includes('exceeded the data transfer quota')) {
+            return { status: 'error', error: 'Database quota exceeded. Please reset quota in your Neon console.' };
+        }
         return { status: 'error', error: 'Something went wrong sending reset code' };
     }
 }

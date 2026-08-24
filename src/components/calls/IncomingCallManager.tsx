@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Card,
@@ -13,7 +14,6 @@ import {
   FaVideo,
   FaPhoneSlash,
   FaPhoneAlt,
-  FaUsers,
 } from 'react-icons/fa';
 
 interface ActiveIncomingCall {
@@ -30,6 +30,8 @@ interface ActiveIncomingCall {
 export default function IncomingCallManager() {
   const router = useRouter();
   const pathname = usePathname();
+  const { data: session, status } = useSession();
+  const userId = session?.user?.id;
 
   const [incomingCall, setIncomingCall] = useState<ActiveIncomingCall | null>(null);
   const [dismissedCallIds, setDismissedCallIds] = useState<string[]>([]);
@@ -88,8 +90,13 @@ export default function IncomingCallManager() {
     }
   };
 
-  // Poll for incoming calls every 3 seconds
+  // Only poll if user is logged in
   useEffect(() => {
+    if (status !== 'authenticated' || !userId) {
+      stopRingtone();
+      return;
+    }
+
     // Don't pop up if user is already inside a call
     if (pathname?.startsWith('/groups/call/') || pathname?.startsWith('/dating/call/') || pathname?.startsWith('/virtual/call/')) {
       stopRingtone();
@@ -118,13 +125,13 @@ export default function IncomingCallManager() {
     };
 
     checkIncoming();
-    const interval = setInterval(checkIncoming, 3000);
+    const interval = setInterval(checkIncoming, 8000); // Poll every 8s to prevent database quota exhaustion
 
     return () => {
       clearInterval(interval);
       stopRingtone();
     };
-  }, [pathname, dismissedCallIds, incomingCall]);
+  }, [pathname, dismissedCallIds, incomingCall, status, userId]);
 
   const handleAccept = () => {
     if (!incomingCall) return;
@@ -170,7 +177,7 @@ export default function IncomingCallManager() {
               <div className="flex-1 min-w-0">
                 <div className="inline-flex items-center gap-1 text-[10px] uppercase font-extrabold text-pink-400 tracking-wider">
                   <FaPhoneAlt className="animate-bounce" />
-                  <span>Incoming Video Call...</span>
+                  <span>Incoming Call...</span>
                 </div>
                 <h2 className="font-extrabold text-base text-white truncate">
                   {incomingCall.callerName}
@@ -178,7 +185,7 @@ export default function IncomingCallManager() {
                 <p className="text-xs text-slate-300 truncate">
                   {incomingCall.type === 'group'
                     ? `Group: ${incomingCall.groupName || 'Hangout'}`
-                    : '1-on-1 Real Dating Call'}
+                    : '1-on-1 Dating Call'}
                 </p>
               </div>
             </div>

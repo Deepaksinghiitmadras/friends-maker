@@ -90,13 +90,13 @@ export const usePresenceChannel = (userId: string | null, profileComplete: boole
 
     pollOnlineUsers();
 
-    // Heartbeat every 30 seconds
+    // Heartbeat every 60 seconds
     const heartbeatTimer = setInterval(() => {
       fetch('/api/presence', { method: 'POST' }).catch(() => {});
-    }, 30000);
+    }, 60000);
 
-    // Online poll every 15 seconds
-    const pollTimer = setInterval(pollOnlineUsers, 15000);
+    // Online poll every 45 seconds
+    const pollTimer = setInterval(pollOnlineUsers, 45000);
 
     return () => {
       clearInterval(heartbeatTimer);

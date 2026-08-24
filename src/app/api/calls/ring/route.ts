@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-// In-memory active calls registry (fast real-time lookup with timestamp expiry)
+// In-memory active calls registry (zero database overhead)
 interface ActiveCall {
   id: string;
   type: 'group' | 'direct';
-  targetId: string; // groupId or recipientUserId
+  targetId: string; // recipientUserId or groupId
   callerId: string;
   callerName: string;
   callerImage?: string | null;
@@ -46,13 +45,8 @@ export async function POST(req: NextRequest) {
 
     const { type, targetId, groupName } = await req.json();
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      include: { member: true },
-    });
-
-    const callerName = user?.member?.name || user?.name || session.user.name || 'Friend';
-    const callerImage = user?.member?.image || user?.image || session.user.image || null;
+    const callerName = session.user.name || 'Friend';
+    const callerImage = session.user.image || null;
 
     const callId = `call_${Date.now()}_${session.user.id}`;
     const callData: ActiveCall = {
@@ -69,15 +63,13 @@ export async function POST(req: NextRequest) {
     activeCalls.set(callId, callData);
     cleanupExpiredCalls();
 
-    console.log(`[📞 CALL RING INITIATED] CallID: ${callId} | Type: ${type} | Target: ${targetId} | Caller: ${callerName}`);
-
     return NextResponse.json({ success: true, callId, call: callData });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-// GET /api/calls/ring — check if there are any incoming calls for current user
+// GET /api/calls/ring — check if there are any incoming calls for current user (zero DB query)
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -89,24 +81,13 @@ export async function GET(req: NextRequest) {
 
     cleanupExpiredCalls();
 
-    // 1. Fetch user's joined group IDs
-    const userGroups = await prisma.groupMember.findMany({
-      where: { userId: currentUserId },
-      select: { groupId: true },
-    });
-    const joinedGroupIds = userGroups.map((g) => g.groupId);
-
-    // 2. Find any active call targeting user directly OR targeting user's joined groups
+    // Match in-memory calls targeting this user directly
     const callsList = Array.from(activeCalls.values());
     for (let i = 0; i < callsList.length; i++) {
       const call = callsList[i];
       if (call.callerId === currentUserId) continue; // Don't ring caller's own phone
 
-      if (call.type === 'direct' && call.targetId === currentUserId) {
-        return NextResponse.json({ success: true, activeCall: call });
-      }
-
-      if (call.type === 'group' && joinedGroupIds.includes(call.targetId)) {
+      if (call.targetId === currentUserId) {
         return NextResponse.json({ success: true, activeCall: call });
       }
     }
